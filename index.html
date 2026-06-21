@@ -2000,30 +2000,56 @@ function findTblEnd(xml, startIdx){
   return -1;
 }
 
+// Find the next <w:tc ...> opening tag at or after pos, return its index or -1
+function _nextTc(xml, pos){
+  let i=pos;
+  while(i<xml.length){
+    const idx=xml.indexOf('<w:tc',i);
+    if(idx===-1) return -1;
+    const ch=xml[idx+5];
+    if(ch==='>'||ch===' '||ch==='\r'||ch==='\n') return idx;
+    i=idx+5;
+  }
+  return -1;
+}
+// Extract tcPr block safely: returns [tcOpenTag+tcPr, endPos] or ['<w:tc>', tcStart+5]
+function _extractTcPr(xml, tcStart){
+  // find end of opening <w:tc ...> tag
+  const tagEnd=xml.indexOf('>',tcStart)+1;
+  const tcOpen=xml.substring(tcStart,tagEnd);
+  const prEnd=xml.indexOf('</w:tcPr>',tcStart);
+  const nextTr=xml.indexOf('</w:tr>',tcStart);
+  const nextTc=_nextTc(xml,tagEnd);
+  // tcPr must come before the next cell/row
+  if(prEnd!==-1 && (nextTc===-1||prEnd<nextTc) && (nextTr===-1||prEnd<nextTr)){
+    return [xml.substring(tcStart,prEnd+9), prEnd+9];
+  }
+  return [tcOpen, tagEnd];
+}
+
 function replaceLabeledCell(xml, labelText, newText){
   const lIdx=xml.indexOf('>'+labelText+'<');
   if(lIdx===-1) return xml;
-  const lTcEnd=xml.indexOf('</w:tc>',lIdx)+7;
-  const vTcStart=xml.indexOf('<w:tc>',lTcEnd);
+  const lTcEnd=xml.indexOf('</w:tc>',lIdx);
+  if(lTcEnd===-1) return xml;
+  const vTcStart=_nextTc(xml,lTcEnd+7);
   if(vTcStart===-1) return xml;
-  const vTcEnd=xml.indexOf('</w:tc>',vTcStart)+7;
-  const tcPrEnd=xml.indexOf('</w:tcPr>',vTcStart)+9;
-  const tcPr=xml.substring(vTcStart,tcPrEnd);
+  const vTcEnd=xml.indexOf('</w:tc>',vTcStart);
+  if(vTcEnd===-1) return xml;
+  const [tcPr]=_extractTcPr(xml,vTcStart);
   const newTc=tcPr
     +'<w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr>'
     +(newText?'<w:r><w:t xml:space="preserve">'+xe(String(newText))+'</w:t></w:r>':'')
     +'</w:p></w:tc>';
-  return xml.substring(0,vTcStart)+newTc+xml.substring(vTcEnd);
+  return xml.substring(0,vTcStart)+newTc+xml.substring(vTcEnd+7);
 }
 
 function setRowCell(rowXml, colIdx, text, align){
-  const tcRe=/<w:tc>[\s\S]*?<\/w:tc>/g;
+  const tcRe=/<w:tc[\s>][\s\S]*?<\/w:tc>/g;
   const matches=[...rowXml.matchAll(tcRe)];
   if(colIdx>=matches.length) return rowXml;
   const m=matches[colIdx];
-  const tcXml=m[0];
-  const tcPrEnd=tcXml.indexOf('</w:tcPr>')+9;
-  const tcPr=tcXml.substring(0,tcPrEnd);
+  const [tcPr]=_extractTcPr(m[0],0);
   const alXml=align?'<w:jc w:val="'+align+'"/>':'';
   const newTc=tcPr
     +'<w:p><w:pPr>'+alXml+'<w:spacing w:before="0" w:after="0"/></w:pPr>'
@@ -2034,12 +2060,10 @@ function setRowCell(rowXml, colIdx, text, align){
 }
 
 function setAmountCell(rowXml, value){
-  const matches=[...rowXml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)];
+  const matches=[...rowXml.matchAll(/<w:tc[\s>][\s\S]*?<\/w:tc>/g)];
   if(!matches.length) return rowXml;
   const last=matches[matches.length-1];
-  const tcXml=last[0];
-  const tcPrEnd=tcXml.indexOf('</w:tcPr>')+9;
-  const tcPr=tcXml.substring(0,tcPrEnd);
+  const [tcPr]=_extractTcPr(last[0],0);
   const newTc=tcPr
     +'<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="0" w:after="0"/></w:pPr>'
     +'<w:r><w:t>$</w:t></w:r>'
