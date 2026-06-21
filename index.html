@@ -1345,9 +1345,15 @@ async function exportToSharePoint(){
 // ─── EXCEL SYNC ─────────────────────────────────────────────────────────────
 function _xlDate(val){
   if(!val) return '';
-  if(val instanceof Date) return val.toISOString().slice(0,10);
-  if(typeof val==='number'){ const d=new Date((val-25569)*86400000); return d.toISOString().slice(0,10); }
-  return String(val);
+  if(val instanceof Date){ const d=val; return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); }
+  if(typeof val==='number'){ const d=new Date(Math.round((val-25569)*86400)*1000); return (d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')); }
+  const s=String(val).trim();
+  if(!s||s==='0'||s==='false') return '';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Try parsing any other string format (e.g. "4/15/2026", "Apr 15, 2026")
+  const d=new Date(s);
+  if(!isNaN(d)) return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+  return '';
 }
 function _toXlSerial(str){
   if(!str) return '';
