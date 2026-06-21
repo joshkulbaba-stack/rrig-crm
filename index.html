@@ -147,6 +147,7 @@ tbody tr:last-child td{border-bottom:none}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 </head>
 <body>
 
@@ -318,7 +319,8 @@ function render(){
 
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard(c,a){
-  a.innerHTML='<button class="btn btn-gold btn-sm" onclick="importFromExcel()">📥 Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToExcel()">📤 Export Excel</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
+  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()">☁️ Import SharePoint</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()">☁️ Export SharePoint</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
+  setTimeout(_updateAuthUI, 100);
   const quotedVal = DB.quotes.reduce((s,q)=>s+lineTotal(q.items),0);
   const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+(+j.contractValue||0),0);
   const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=lineTotal(i.items); return s+sub+(sub*(+i.taxRate||0)/100); },0);
@@ -1043,6 +1045,145 @@ function importData(){
   input.click();
 }
 
+// ─── MICROSOFT AUTH + GRAPH ─────────────────────────────────────────────────
+const _MSAL_CONFIG = {
+  auth: {
+    clientId: '42d87ef1-7b7e-47f3-b199-283379e6b1bd',
+    authority: 'https://login.microsoftonline.com/5aa2904f-f849-440e-93e9-7161092637e2',
+    redirectUri: 'https://joshkulbaba-stack.github.io/rrig-crm/'
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+};
+const _SCOPES = ['Files.ReadWrite', 'User.Read'];
+let _msalApp = null;
+let _msalAccount = null;
+let _excelDriveId = null;
+let _excelItemId = null;
+const _EXCEL_SHARE_URL = 'https://rrindgroup.sharepoint.com/:x:/s/Corporate/IQCvEVlpR8phQoZy4bZZKUUoAT6B95pT2kz39rwcJ8DQAv0?e=TBCZNe';
+
+function _getMsal(){
+  if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
+  return _msalApp;
+}
+
+async function msSignIn(){
+  const app = _getMsal();
+  try {
+    const resp = await app.loginPopup({ scopes: _SCOPES });
+    _msalAccount = resp.account;
+    _updateAuthUI();
+    alert('Signed in as ' + _msalAccount.username);
+  } catch(e) {
+    console.error(e);
+    alert('Sign-in failed: ' + e.message);
+  }
+}
+
+function msSignOut(){
+  const app = _getMsal();
+  if(_msalAccount) app.logoutPopup({ account: _msalAccount });
+  _msalAccount = null;
+  _excelDriveId = null;
+  _excelItemId = null;
+  _updateAuthUI();
+}
+
+function _updateAuthUI(){
+  const btn = document.getElementById('ms-auth-btn');
+  if(!btn) return;
+  if(_msalAccount){
+    btn.textContent = '🔓 ' + (_msalAccount.name || _msalAccount.username).split(' ')[0];
+    btn.onclick = msSignOut;
+    btn.title = 'Signed in as ' + _msalAccount.username + ' — click to sign out';
+    btn.className = 'btn btn-gold btn-sm';
+  } else {
+    btn.textContent = '🔑 Sign in';
+    btn.onclick = msSignIn;
+    btn.title = 'Sign in with RRIG Microsoft account';
+    btn.className = 'btn btn-outline btn-sm';
+  }
+}
+
+async function _getToken(){
+  const app = _getMsal();
+  const accounts = app.getAllAccounts();
+  if(accounts.length > 0) _msalAccount = accounts[0];
+  if(!_msalAccount) { alert('Please sign in with your RRIG Microsoft account first.'); return null; }
+  try {
+    const r = await app.acquireTokenSilent({ scopes: _SCOPES, account: _msalAccount });
+    return r.accessToken;
+  } catch(e) {
+    const r = await app.acquireTokenPopup({ scopes: _SCOPES, account: _msalAccount });
+    return r.accessToken;
+  }
+}
+
+async function _resolveExcelIds(token){
+  if(_excelDriveId && _excelItemId) return true;
+  // Encode sharing URL to driveItem
+  const encoded = btoa(_EXCEL_SHARE_URL).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+  const url = 'https://graph.microsoft.com/v1.0/shares/u!' + encoded + '/driveItem';
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  if(!res.ok){ alert('Could not locate Excel file on SharePoint. (' + res.status + ')'); return false; }
+  const data = await res.json();
+  _excelDriveId = data.parentReference.driveId;
+  _excelItemId = data.id;
+  return true;
+}
+
+async function _graphExcel(method, path, body){
+  const token = await _getToken();
+  if(!token) return null;
+  if(!await _resolveExcelIds(token)) return null;
+  const base = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelItemId + '/workbook';
+  const opts = { method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } };
+  if(body) opts.body = JSON.stringify(body);
+  const res = await fetch(base + path, opts);
+  if(!res.ok){ const t=await res.text(); console.error('Graph error',res.status,t); return null; }
+  return res.status === 204 ? true : res.json();
+}
+
+async function importFromSharePoint(){
+  try {
+    const token = await _getToken();
+    if(!token) return;
+    if(!await _resolveExcelIds(token)) return;
+    // Download the workbook as binary and use SheetJS locally
+    const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelItemId + '/content';
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if(!res.ok){ alert('Failed to download Excel file (' + res.status + ')'); return; }
+    const buf = await res.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: false });
+    _applyWorkbook(wb);
+    alert('Imported from SharePoint successfully!');
+  } catch(e) {
+    console.error(e);
+    alert('Import failed: ' + e.message);
+  }
+}
+
+async function exportToSharePoint(){
+  try {
+    const token = await _getToken();
+    if(!token) return;
+    if(!await _resolveExcelIds(token)) return;
+    // Build workbook with SheetJS and upload
+    const wb = _buildWorkbook();
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelItemId + '/content';
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      body: new Blob([wbout])
+    });
+    if(!res.ok){ alert('Upload failed (' + res.status + ')'); return; }
+    alert('Exported to SharePoint successfully!');
+  } catch(e) {
+    console.error(e);
+    alert('Export failed: ' + e.message);
+  }
+}
+
 // ─── EXCEL SYNC ─────────────────────────────────────────────────────────────
 function _xlDate(val){
   if(!val) return '';
@@ -1069,13 +1210,7 @@ function _readSheet(wb, sheetName, idCol){
     .map(r=>{ const o={}; hdrs.forEach((h,i)=>{ if(h) o[h]=r[i]??''; }); return o; });
 }
 
-function importFromExcel(){
-  if(typeof XLSX==='undefined'){ alert('SheetJS not loaded — check internet connection.'); return; }
-  const input=document.createElement('input'); input.type='file'; input.accept='.xlsx,.xls';
-  input.onchange=async e=>{
-    const file=e.target.files[0]; if(!file) return;
-    const data=await file.arrayBuffer();
-    const wb=XLSX.read(data,{type:'array',cellDates:true,raw:false});
+function _applyWorkbook(wb){
 
     // ── Customers ──
     const custRows=_readSheet(wb,'Customers','Cust ID');
@@ -1228,12 +1363,21 @@ function importFromExcel(){
 
     saveDB(); render();
     alert(`✅ Imported from Excel:\n• ${DB.customers.length} customers\n• ${DB.quotes.length} quotes\n• ${DB.jobs.length} jobs\n• ${DB.invoices.length} invoices\n• ${DB.pos.length} POs`);
+}
+
+function importFromExcel(){
+  if(typeof XLSX==='undefined'){ alert('SheetJS not loaded — check internet connection.'); return; }
+  const input=document.createElement('input'); input.type='file'; input.accept='.xlsx,.xls';
+  input.onchange=async e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const data=await file.arrayBuffer();
+    const wb=XLSX.read(data,{type:'array',cellDates:false,raw:false});
+    _applyWorkbook(wb);
   };
   input.click();
 }
 
-function exportToExcel(){
-  if(typeof XLSX==='undefined'){ alert('SheetJS not loaded — check internet connection.'); return; }
+function _buildWorkbook(){
   const wb=XLSX.utils.book_new();
 
   // ── Customers ──
@@ -1314,7 +1458,12 @@ function exportToExcel(){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([pHdr,...pData]),'📦 POs');
 
-  XLSX.writeFile(wb,'RRIG-Business-Management-'+today()+'.xlsx');
+  return wb;
+}
+
+function exportToExcel(){
+  if(typeof XLSX==='undefined'){ alert('SheetJS not loaded — check internet connection.'); return; }
+  XLSX.writeFile(_buildWorkbook(),'RRIG-Business-Management-'+today()+'.xlsx');
 }
 
 // ─── WORD EXPORT ────────────────────────────────────────────────────────────
