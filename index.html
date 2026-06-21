@@ -1130,14 +1130,20 @@ async function _getToken(){
 
 async function _resolveExcelIds(token){
   if(_excelDriveId && _excelItemId) return true;
-  // Encode sharing URL to driveItem
-  const encoded = btoa(_EXCEL_SHARE_URL).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
-  const url = 'https://graph.microsoft.com/v1.0/shares/u!' + encoded + '/driveItem';
-  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-  if(!res.ok){ alert('Could not locate Excel file on SharePoint. (' + res.status + ')'); return false; }
-  const data = await res.json();
-  _excelDriveId = data.parentReference.driveId;
-  _excelItemId = data.id;
+  const fileName = 'Red River Industrial Group - Business Management.xlsx';
+  const headers = { Authorization: 'Bearer ' + token };
+  // Get site
+  const siteRes = await fetch('https://graph.microsoft.com/v1.0/sites/rrindgroup.sharepoint.com:/sites/Corporate', { headers });
+  if(!siteRes.ok){ alert('Could not access SharePoint site. (' + siteRes.status + ')'); return false; }
+  const site = await siteRes.json();
+  // Search for file by name across all drives
+  const searchRes = await fetch('https://graph.microsoft.com/v1.0/sites/' + site.id + '/drive/root/search(q=\'Business Management\')', { headers });
+  if(!searchRes.ok){ alert('Could not search SharePoint. (' + searchRes.status + ')'); return false; }
+  const searchData = await searchRes.json();
+  const found = (searchData.value||[]).find(f => f.name && f.name.includes('Business Management'));
+  if(!found){ alert('Excel file not found on SharePoint. Make sure "Red River Industrial Group - Business Management.xlsx" is in the Corporate site.'); return false; }
+  _excelDriveId = found.parentReference.driveId;
+  _excelItemId = found.id;
   return true;
 }
 
