@@ -925,32 +925,85 @@ function previewQuote(id){
   const q = DB.quotes.find(x=>x.id===id);
   const cu = DB.customers.find(x=>x.id===q.custId)||{};
   const sub = lineTotal(q.items);
+  const taxRate = cu.taxRate||0;
+  const tax = sub*taxRate/100;
+  const total = sub+tax;
+  const labelRow=(lbl,val)=>`<tr><td style="font-weight:600;color:#1e3a5f;padding:3px 0;width:110px;font-size:12.5px;vertical-align:top">${lbl}</td><td style="padding:3px 0;font-size:12.5px;color:#1a2332">${val||''}</td></tr>`;
   const html = `<div class="doc-page">
     ${docHead('QUOTATION', q.id)}
     <div class="doc-body">
-      <div class="doc-two">
-        <div class="doc-box"><div class="doc-box-title">Bill To</div>
-          <p><strong>${cu.company||''}</strong><br>Attention: ${cu.contact||''}<br>${cu.addr||''}<br>${cu.city||''}, ${cu.state||''} &nbsp; ${cu.country||''}<br>${cu.email||''}<br>${cu.phone||''}</p>
+      <div class="doc-two" style="margin-bottom:20px">
+        <div>
+          <div class="doc-box-title">BILL TO</div>
+          <table style="border-collapse:collapse;width:100%">
+            ${labelRow('Attention:',cu.contact||'')}
+            ${labelRow('Company:',cu.company||'')}
+            ${labelRow('Address:',cu.addr||'')}
+            ${labelRow('',`${cu.city||''}${cu.state?', '+cu.state:''} &nbsp; ${cu.country||''}`)}
+            ${labelRow('Email:',cu.email||'')}
+            ${labelRow('Phone:',cu.phone||'')}
+          </table>
         </div>
-        <div class="doc-box"><div class="doc-box-title">Quote Details</div>
-          <p><strong>Quote #:</strong> ${q.id}<br><strong>Date:</strong> ${fmtDate(q.date)}<br><strong>Valid Until:</strong> ${fmtDate(q.validUntil)||'30 days from issue'}<br><strong>Prepared By:</strong> ${q.preparedBy||''}<br><strong>Email:</strong> ${q.preparedByEmail||''}</p>
-          <br><p><strong>Project:</strong> ${q.project}<br><strong>Site:</strong> ${q.site||'—'}</p>
+        <div>
+          <div class="doc-box-title">QUOTE DETAILS</div>
+          <table style="border-collapse:collapse;width:100%">
+            ${labelRow('Quote #:',q.id)}
+            ${labelRow('Date:',fmtDate(q.date))}
+            ${labelRow('Valid Until:',fmtDate(q.validUntil)||'30 days from issue')}
+            ${labelRow('Prepared By:',q.preparedBy||'')}
+            ${labelRow('Email:',q.preparedByEmail||'')}
+          </table>
         </div>
       </div>
-      ${docItemsTable(q.items)}
-      ${docTotals(sub, cu.taxRate||0, 0)}
-      ${q.inclusions&&q.inclusions.length||q.exclusions&&q.exclusions.length?`<div class="doc-inclexcl">
-        <div><h4>Inclusions</h4><ul>${(q.inclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
-        <div><h4>Exclusions</h4><ul>${(q.exclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+      <div style="margin-bottom:20px">
+        <div class="doc-box-title">PROJECT DETAILS</div>
+        <table style="border-collapse:collapse;width:100%">
+          ${labelRow('Project Name:',q.project||'')}
+          ${labelRow('Site / Location:',q.site||'')}
+          ${labelRow('Scope of Work:',q.category||'')}
+        </table>
+      </div>
+      <table class="doc-items-tbl">
+        <thead><tr><th style="text-align:left">DESCRIPTION</th><th style="text-align:center">QTY</th><th style="text-align:center">UNIT</th><th class="right">UNIT PRICE</th><th class="right">TOTAL</th></tr></thead>
+        <tbody>
+          ${q.items.map((item,i)=>`<tr style="background:${i%2===0?'#ffffff':'#f9f8f6'}"><td style="padding:9px 10px">${item.desc||''}</td><td style="padding:9px 10px;text-align:center">${item.qty||''}</td><td style="padding:9px 10px;text-align:center">${item.unit||''}</td><td class="right" style="padding:9px 10px">${fmt$(item.price)}</td><td class="right" style="padding:9px 10px">${fmt$((+item.qty||0)*(+item.price||0))}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="doc-totals-wrap">
+        <table class="doc-totals-tbl">
+          <tr><td>Subtotal</td><td class="right">${fmt$(sub)}</td></tr>
+          <tr><td>Tax</td><td class="right">${fmt$(tax)}</td></tr>
+          <tr class="final-row"><td>TOTAL (USD)</td><td class="right">${fmt$(total)}</td></tr>
+        </table>
+      </div>
+      ${(q.inclusions&&q.inclusions.length)||(q.exclusions&&q.exclusions.length)?`<div class="doc-inclexcl">
+        <div><div class="doc-box-title">INCLUSIONS</div><ul>${(q.inclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
+        <div><div class="doc-box-title">EXCLUSIONS</div><ul>${(q.exclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></div>
       </div>`:''}
-      ${q.notes?`<div class="doc-notes">${q.notes}</div>`:''}
-      <div class="doc-sig">
-        <div class="doc-sig-block"><div class="doc-sig-line"><strong>${q.preparedBy||'Authorized By'}</strong><br>Red River Industrial Group Inc.</div></div>
-        <div class="doc-sig-block"><div class="doc-sig-line">Client Acceptance<br>&nbsp;</div></div>
+      ${q.notes?`<div style="margin-bottom:20px"><div class="doc-box-title">NOTES</div><div style="font-size:12.5px;line-height:1.8;color:#1a2332">${q.notes}</div></div>`:''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-bottom:16px;font-size:12px">
+        <div>
+          <div class="doc-box-title">AUTHORIZED BY – RED RIVER INDUSTRIAL GROUP INC.</div>
+          <div style="margin-top:8px"><div style="border-top:1px solid #1e3a5f;margin-bottom:20px"></div>
+          <table style="width:100%;border-collapse:collapse">
+            ${labelRow('Name:',q.preparedBy||'')}
+            ${labelRow('Title:','')}
+            ${labelRow('Date:',fmtDate(q.date))}
+          </table></div>
+        </div>
+        <div>
+          <div class="doc-box-title">CLIENT ACCEPTANCE</div>
+          <div style="margin-top:8px"><div style="border-top:1px solid #1e3a5f;margin-bottom:20px"></div>
+          <table style="width:100%;border-collapse:collapse">
+            ${labelRow('Name:','')}
+            ${labelRow('Title:','')}
+            ${labelRow('Date:','')}
+          </table></div>
+        </div>
       </div>
-      <p style="font-size:12px;color:#6b7a8d;text-align:center">Price guaranteed for 30 days from date of quotation. Thank you for the opportunity to provide this quotation.</p>
+      <p style="font-size:11px;color:#6b7a8d;text-align:center;border-top:1px solid #e2e8f0;padding-top:12px">Price guaranteed for 30 days from date of quotation. Thank you for the opportunity to provide this quotation.</p>
     </div>
-    <div class="doc-footer">${COMPANY.name} &nbsp;|&nbsp; ${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip} &nbsp;|&nbsp; ${COMPANY.phone}</div>
+    <div class="doc-footer">${COMPANY.name} &nbsp;|&nbsp; ${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip} &nbsp;|&nbsp; ${COMPANY.phone} &nbsp;|&nbsp; ${COMPANY.email}</div>
   </div>`;
   showDocPreview('Quote — '+q.id, html);
 }
