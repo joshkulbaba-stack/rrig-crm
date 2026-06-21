@@ -285,7 +285,7 @@ function saveDB(){ localStorage.setItem('rrig-crm-v1',JSON.stringify(DB)); }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 const fmt$ = v => '$'+(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const fmtDate = d => { if(!d) return '—'; const p=d.split('-'); return p[1]+'/'+p[2]+'/'+p[0]; };
+const fmtDate = d => { if(!d) return '—'; const p=String(d).split('-'); if(p.length<3||!p[1]) return String(d); const months=['January','February','March','April','May','June','July','August','September','October','November','December']; return months[parseInt(p[1],10)-1]+' '+parseInt(p[2],10)+', '+p[0]; };
 const today = () => new Date().toISOString().split('T')[0];
 const addDays = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt.toISOString().split('T')[0]; };
 function custName(id){ const c=DB.customers.find(x=>x.id===id); return c?c.company:id; }
@@ -1245,7 +1245,7 @@ function _applyWorkbook(wb){
         zip:r['Zip']||'',
         country:r['Country']||'',
         currency:r['Currency']||'USD',
-        taxRate:Math.round(parseFloat(r['Tax Rate (%)']||0)*10000)/100,
+        taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate (%)']),
         terms:r['Payment Terms']||'Net 30',
         creditLimit:r['Credit Limit ($)']||'',
         leadSource:r['Lead Source']||'',
@@ -1334,7 +1334,7 @@ function _applyWorkbook(wb){
           dueDate:_xlDate(r['Due Date']),
           poNum:exist?.poNum||'',
           terms:exist?.terms||'Net 30',
-          taxRate:Math.round(parseFloat(r['Tax Rate']||0)*10000)/100,
+          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']),
           status:r['Status']||'Unpaid',
           datePaid:_xlDate(r['Date Paid']),
           payMethod:r['Payment Method']||'',
@@ -1368,7 +1368,7 @@ function _applyWorkbook(wb){
           reqDate:_xlDate(r['Required Date']),
           category:r['Category']||'',
           terms:exist?.terms||'Net 60',
-          taxRate:Math.round(parseFloat(r['Tax Rate']||0)*10000)/100,
+          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']),
           ccFees:+(r['CC/Other Fees ($)']||0),
           status:r['Status']||'Open',
           notes:r['Notes']||'',
@@ -1658,6 +1658,7 @@ function modifyQuote(xml, q, cu){
   xml=replaceLabeledCell(xml,'Phone:',cu.phone||'');
   xml=replaceLabeledCell(xml,'Date:',fmtDate(q.date)||'');
   xml=replaceLabeledCell(xml,'Valid Until:',fmtDate(q.validUntil)||'30 days from issue');
+  xml=replaceLabeledCell(xml,'Prepared By:',q.preparedBy||'');
   xml=replaceLabeledCell(xml,'Project Name:',q.project||'');
   xml=replaceLabeledCell(xml,'Site / Location:',q.site||'');
   xml=replaceLabeledCell(xml,'Scope of Work:',q.category||'');
