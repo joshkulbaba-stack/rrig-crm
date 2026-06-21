@@ -1061,18 +1061,26 @@ let _excelDriveId = null;
 let _excelItemId = null;
 const _EXCEL_SHARE_URL = 'https://rrindgroup.sharepoint.com/:x:/s/Corporate/IQCvEVlpR8phQoZy4bZZKUUoAT6B95pT2kz39rwcJ8DQAv0?e=TBCZNe';
 
-function _getMsal(){
-  if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
+async function _getMsal(){
+  if(!_msalApp){
+    _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
+    await _msalApp.initialize();
+    // Handle redirect response on page load
+    try {
+      const resp = await _msalApp.handleRedirectPromise();
+      if(resp && resp.account){
+        _msalAccount = resp.account;
+        _updateAuthUI();
+      }
+    } catch(e){ console.error('Redirect handle error', e); }
+  }
   return _msalApp;
 }
 
 async function msSignIn(){
-  const app = _getMsal();
+  const app = await _getMsal();
   try {
-    const resp = await app.loginPopup({ scopes: _SCOPES });
-    _msalAccount = resp.account;
-    _updateAuthUI();
-    alert('Signed in as ' + _msalAccount.username);
+    await app.loginRedirect({ scopes: _SCOPES });
   } catch(e) {
     console.error(e);
     alert('Sign-in failed: ' + e.message);
@@ -1080,8 +1088,9 @@ async function msSignIn(){
 }
 
 function msSignOut(){
-  const app = _getMsal();
-  if(_msalAccount) app.logoutPopup({ account: _msalAccount });
+  if(_msalApp && _msalAccount){
+    _msalApp.logoutRedirect({ account: _msalAccount });
+  }
   _msalAccount = null;
   _excelDriveId = null;
   _excelItemId = null;
@@ -1105,7 +1114,7 @@ function _updateAuthUI(){
 }
 
 async function _getToken(){
-  const app = _getMsal();
+  const app = await _getMsal();
   const accounts = app.getAllAccounts();
   if(accounts.length > 0) _msalAccount = accounts[0];
   if(!_msalAccount) { alert('Please sign in with your RRIG Microsoft account first.'); return null; }
@@ -1113,8 +1122,8 @@ async function _getToken(){
     const r = await app.acquireTokenSilent({ scopes: _SCOPES, account: _msalAccount });
     return r.accessToken;
   } catch(e) {
-    const r = await app.acquireTokenPopup({ scopes: _SCOPES, account: _msalAccount });
-    return r.accessToken;
+    await app.acquireTokenRedirect({ scopes: _SCOPES, account: _msalAccount });
+    return null;
   }
 }
 
@@ -1699,6 +1708,8 @@ function wordPO(id){
 // ─── INIT ───────────────────────────────────────────────────────────────────
 loadDB();
 render();
+// Initialize MSAL on load to catch redirect response from Microsoft login
+_getMsal().then(()=>_updateAuthUI()).catch(e=>console.error('MSAL init',e));
 </script>
 </body>
 </html>
