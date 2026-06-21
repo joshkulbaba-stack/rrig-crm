@@ -1740,7 +1740,10 @@ function _applyWorkbook(wb){
           category:r['Category']||'',
           status:r['Status']||'Draft',
           leadSource:r['Lead Source']||'',
-          notes:r['Notes']||'',
+          preparedBy:r['Prepared By']||exist?.preparedBy||'',
+          preparedByEmail:r['Prepared By Email']||exist?.preparedByEmail||'',
+          currency:r['Currency']||exist?.currency||'USD',
+          notes:exist?.notes||'',
           items,
           inclusions:exist?.inclusions||[],
           exclusions:exist?.exclusions||[],
@@ -1751,23 +1754,29 @@ function _applyWorkbook(wb){
     // ── Jobs ──
     const jobRows=_readSheet(wb,'Jobs','Job #');
     if(jobRows.length){
-      DB.jobs=jobRows.map(r=>({
-        id:String(r['Job #']),
-        quoteId:String(r['Quote #']||''),
-        custId:String(r['Customer ID']||''),
-        desc:r['Job Description']||'',
-        site:r['Site Location']||'',
-        status:r['Status']||'Active',
-        startDate:_xlDate(r['Start Date']),
-        endDate:_xlDate(r['End Date']),
-        contractValue:+(r['Contract Value ($)']||0),
-        pm:r['Project Manager']||'',
-        budgetLabour:+(r['Budgeted Labour ($)']||0),
-        budgetMaterials:+(r['Budgeted Materials ($)']||0),
-        budgetSub:+(r['Budgeted Subcontract ($)']||0),
-        actualCosts:+(r['Actual Costs ($)']||0),
-        notes:r['Notes']||'',
-      }));
+      DB.jobs=jobRows.map(r=>{
+        const exist=DB.jobs.find(j=>j.id===String(r['Job #']));
+        return {
+          id:String(r['Job #']),
+          quoteId:String(r['Quote #']||''),
+          custId:String(r['Customer ID']||''),
+          desc:r['Job Description']||'',
+          site:r['Site Location']||'',
+          status:r['Status']||'Active',
+          startDate:_xlDate(r['Start Date']),
+          endDate:_xlDate(r['End Date']),
+          contractValue:+(r['Contract Value ($)']||0),
+          pm:r['Project Manager']||'',
+          budgetLabour:+(r['Budgeted Labour ($)']||0),
+          budgetMaterials:+(r['Budgeted Materials ($)']||0),
+          budgetSub:+(r['Budgeted Subcontract ($)']||0),
+          actualCosts:+(r['Actual Costs ($)']||0),
+          actualLabour:+(r['Actual Labour ($)']||exist?.actualLabour||0),
+          actualMaterials:+(r['Actual Materials ($)']||exist?.actualMaterials||0),
+          actualSub:+(r['Actual Subcontract ($)']||exist?.actualSub||0),
+          notes:exist?.notes||'',
+        };
+      });
     }
 
     // ── Invoices ──
@@ -1784,16 +1793,17 @@ function _applyWorkbook(wb){
         return {
           id:String(r['Invoice #']),
           jobId:String(r['Job #']||''),
-          custId:exist?.custId||'',
+          custId:String(r['Customer ID']||'')||(DB.jobs.find(j=>j.id===String(r['Job #']))?.custId)||exist?.custId||'',
           date:_xlDate(r['Invoice Date']),
           dueDate:_xlDate(r['Due Date']),
-          poNum:exist?.poNum||'',
-          terms:exist?.terms||'Net 30',
-          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']),
+          poNum:r['Client PO #']||r['PO #']||exist?.poNum||'',
+          terms:r['Payment Terms']||exist?.terms||'Net 30',
+          currency:r['Currency']||exist?.currency||'USD',
+          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
           status:r['Status']||'Unpaid',
           datePaid:_xlDate(r['Date Paid']),
-          payMethod:r['Payment Method']||'',
-          notes:r['Notes']||'',
+          payMethod:r['Payment Method']||exist?.payMethod||'',
+          notes:exist?.notes||'',
           items,
         };
       });
@@ -1812,21 +1822,24 @@ function _applyWorkbook(wb){
         return {
           id:String(r['PO #']),
           jobId:String(r['Job #']||''),
-          vendor:r['Supplier Name']||'',
-          vendorContact:r['Supplier Contact']||'',
-          vendorAddr:exist?.vendorAddr||'',
-          vendorCity:exist?.vendorCity||'',
-          vendorState:exist?.vendorState||r['Vendor Country']||'',
-          vendorPhone:exist?.vendorPhone||'',
-          vendorEmail:exist?.vendorEmail||'',
-          date:_xlDate(r['PO Date']),
-          reqDate:_xlDate(r['Required Date']),
-          category:r['Category']||'',
-          terms:exist?.terms||'Net 60',
-          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']),
-          ccFees:+(r['CC/Other Fees ($)']||0),
+          vendor:r['Supplier Name']||r['Vendor Name']||exist?.vendor||'',
+          vendorContact:r['Supplier Contact']||r['Vendor Contact']||exist?.vendorContact||'',
+          vendorAddr:r['Vendor Address']||r['Supplier Address']||exist?.vendorAddr||'',
+          vendorCity:r['Vendor City']||r['Supplier City']||exist?.vendorCity||'',
+          vendorState:r['Vendor State']||r['Supplier State']||exist?.vendorState||'',
+          vendorPhone:r['Vendor Phone']||r['Supplier Phone']||exist?.vendorPhone||'',
+          vendorEmail:r['Vendor Email']||r['Supplier Email']||exist?.vendorEmail||'',
+          date:_xlDate(r['PO Date']||r['Date Issued']),
+          reqDate:_xlDate(r['Required Date']||r['Delivery Date']),
+          category:r['Category']||exist?.category||'',
+          terms:r['Payment Terms']||exist?.terms||'Net 60',
+          shipTo:r['Ship To']||r['Ship To / Location']||exist?.shipTo||'',
+          attn:r['Attention']||r['Attn']||exist?.attn||'',
+          currency:r['Currency']||exist?.currency||'USD',
+          taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
+          ccFees:+(r['CC/Other Fees ($)']||r['CC Fees ($)']||0),
           status:r['Status']||'Open',
-          notes:r['Notes']||'',
+          notes:exist?.notes||'',
           items,
         };
       });
@@ -1946,9 +1959,18 @@ function fmtN(n){ return Number(n||0).toLocaleString('en-US',{minimumFractionDig
 function findTblEnd(xml, startIdx){
   let d=0, pos=startIdx;
   while(pos<xml.length){
-    const o=xml.indexOf('<w:tbl',pos), c=xml.indexOf('</w:tbl>',pos);
+    // Only match actual table opens (<w:tbl> or <w:tbl ), not <w:tblPr>, <w:tblGrid> etc.
+    let o=-1, scan=pos;
+    while(scan<xml.length){
+      const idx=xml.indexOf('<w:tbl',scan);
+      if(idx===-1) break;
+      const ch=xml[idx+6];
+      if(ch==='>'||ch===' '||ch==='\r'||ch==='\n'){ o=idx; break; }
+      scan=idx+7;
+    }
+    const c=xml.indexOf('</w:tbl>',pos);
     if(c===-1) return -1;
-    if(o!==-1&&o<c){ d++; pos=o+6; }
+    if(o!==-1&&o<c){ d++; pos=o+7; }
     else{ if(d===0) return c+8; d--; pos=c+8; }
   }
   return -1;
