@@ -2190,13 +2190,16 @@ const PO_TPL='UEsDBBQAAAAIAAAAIQAReeTgYwEAAIYGAAAcABQAd29yZC9fcmVscy9kb2N1bWVudC
 
 async function dlDocx(filename, tplB64, modifier){
   if(typeof JSZip==='undefined'){ alert('JSZip not loaded - check internet.'); return; }
-  const bytes=Uint8Array.from(atob(tplB64),c=>c.charCodeAt(0));
-  const zip=await JSZip.loadAsync(bytes);
-  let xml=await zip.file('word/document.xml').async('string');
-  xml=modifier(xml);
-  zip.file('word/document.xml',xml);
-  const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  try{
+    const bytes=Uint8Array.from(atob(tplB64),c=>c.charCodeAt(0));
+    const zip=await JSZip.loadAsync(bytes);
+    let xml=await zip.file('word/document.xml').async('string');
+    try{ xml=modifier(xml); }
+    catch(modErr){ alert('Error filling template fields:\n'+modErr.message); console.error('modifier error',modErr); return; }
+    zip.file('word/document.xml',xml);
+    const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  } catch(e){ alert('Word generation failed:\n'+e.message); console.error('dlDocx error',e); }
 }
 
 function wordInvoice(id){
