@@ -139,10 +139,28 @@ tbody tr:last-child td{border-bottom:none}
 .doc-footer{background:#1A2332;color:rgba(255,255,255,.6);padding:10px 20px;text-align:center;font-size:11px}
 
 @media print{
-  #doc-overlay .doc-toolbar{display:none!important}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   body>*:not(#doc-overlay){display:none!important}
-  #doc-overlay{padding:0!important;border:none!important}
-  .doc-page{border:none!important;border-radius:0!important}
+  #doc-overlay{
+    position:static!important;
+    display:block!important;
+    overflow:visible!important;
+    height:auto!important;
+    max-height:none!important;
+    padding:0!important;
+    background:white!important;
+  }
+  #doc-overlay .doc-toolbar{display:none!important}
+  .doc-page{
+    border:none!important;
+    border-radius:0!important;
+    max-width:100%!important;
+    overflow:visible!important;
+    box-shadow:none!important;
+  }
+  .doc-page table{page-break-inside:avoid}
+  .doc-page div[style*="padding:20px 24px"]{padding:12px!important}
+  .doc-page div[style*="max-width:820px"]{max-width:100%!important}
 }
 
 /* ── HAMBURGER BUTTON ── */
@@ -2226,20 +2244,125 @@ async function dlDocx(filename, tplB64, modifier){
   } catch(e){ alert('Word generation failed:\n'+e.message); console.error('dlDocx error',e); }
 }
 
+function _dlWord(filename, bodyHtml){
+  const css=`@page{size:8.5in 11in;margin:.6in}body{font-family:Arial,sans-serif;font-size:10pt;color:#1A2332;margin:0}table{border-collapse:collapse;width:100%;margin-bottom:6pt}td,th{padding:4pt 7pt;font-size:9pt;vertical-align:top;border:1pt solid #D0CCC4}.sec-hdr{background:#1A2332;color:white;font-weight:bold;font-size:8pt;letter-spacing:.4pt;border:1pt solid #1A2332}.bg{background:#F5F3EE}.lbl{font-weight:bold;width:100pt;white-space:nowrap}.sep{height:3pt;background:#C0392B;border:none;font-size:0;line-height:0}.items-hdr{background:#E8E6E0;font-weight:bold;font-size:8pt;text-transform:uppercase;letter-spacing:.3pt}.red-row{background:#C0392B;color:white;font-weight:bold}.navy-items-hdr{background:#1A2332;color:white;font-weight:bold;font-size:8pt;text-transform:uppercase}`;
+  const doc=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]--><style>${css}</style></head><body>${bodyHtml}</body></html>`;
+  const blob=new Blob(['﻿'+doc],{type:'application/msword'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+}
+
+function wordQuote(id){
+  const q=DB.quotes.find(x=>x.id===id);
+  const cu=DB.customers.find(x=>x.id===q.custId)||{};
+  const sub=lineTotal(q.items), tax=sub*(cu.taxRate||0)/100, total=sub+tax;
+  const H=(l,v)=>`<td class="lbl bg">${l}</td><td class="bg">${v||'&nbsp;'}</td>`;
+  const TC=['Acceptance: Supplier acknowledges acceptance upon shipment or written confirmation.','Pricing: All prices are firm and include all applicable charges unless stated otherwise.','Taxes: Supplier must apply correct taxes per Texas and federal law unless exemption certificates are provided.','Delivery: Time is of the essence. Late delivery may result in cancellation without penalty to Red River Industrial Group Inc.','Quality: All goods/services must meet specifications. Non-conforming goods may be rejected at supplier expense.'];
+  const html=`
+  <table><tr>
+    <td style="background:#1A2332;color:white;width:60%;padding:12pt 14pt"><div style="font-size:14pt;font-weight:bold">RED RIVER INDUSTRIAL GROUP INC.</div><div style="font-size:8pt;opacity:.8;margin-top:3pt">${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip}<br>${COMPANY.phone} &nbsp;|&nbsp; ${COMPANY.email} &nbsp;|&nbsp; ${COMPANY.website}</div></td>
+    <td style="background:#1A2332;color:white;width:40%;padding:12pt 14pt;text-align:right"><div style="color:#C0392B;font-size:18pt;font-weight:bold">QUOTATION</div><div style="font-size:13pt;font-weight:bold">${q.id}</div></td>
+  </tr></table>
+  <table><tr><td class="sep">&nbsp;</td></tr></table>
+  <table><tr>
+    <td colspan="2" class="sec-hdr" style="width:50%">BILL TO</td>
+    <td colspan="2" class="sec-hdr" style="width:50%">QUOTE DETAILS</td>
+  </tr><tr>${H('Attention:',cu.contact)}${H('Quote #:',q.id)}</tr>
+  <tr>${H('Company:',cu.company)}${H('Date:',fmtDate(q.date))}</tr>
+  <tr>${H('Address:',cu.addr)}${H('Valid Until:',fmtDate(q.validUntil)||'30 days from issue')}</tr>
+  <tr>${H('Email:',cu.email)}${H('Prepared By:',q.preparedBy)}</tr>
+  <tr>${H('Phone:',cu.phone)}${H('Email:',q.preparedByEmail)}</tr></table>
+  <table><tr><td colspan="2" class="sec-hdr">PROJECT DETAILS</td></tr>
+  <tr>${H('Project Name:',q.project)}</tr>
+  <tr>${H('Site / Location:',q.site)}</tr>
+  <tr>${H('Scope of Work:',q.category)}</tr></table>
+  <table><tr class="items-hdr"><th style="width:55%;text-align:left">Description</th><th style="width:8%;text-align:center">Qty</th><th style="width:8%;text-align:center">Unit</th><th style="width:14%;text-align:right">Unit Price</th><th style="width:15%;text-align:right">Total</th></tr>
+  ${q.items.map((it,i)=>`<tr style="background:${i%2?'#F5F3EE':'white'}"><td>${it.desc||''}</td><td style="text-align:center">${it.qty||''}</td><td style="text-align:center">${it.unit||''}</td><td style="text-align:right">${(+it.price||0).toFixed(2)}</td><td style="text-align:right">${((+it.qty||0)*(+it.price||0)).toFixed(2)}</td></tr>`).join('')}
+  <tr class="bg"><td colspan="3" style="border:none"></td><td style="text-align:right;font-weight:bold">Subtotal</td><td style="text-align:right">$ ${sub.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  <tr class="bg"><td colspan="3" style="border:none"></td><td style="text-align:right;font-weight:bold">Tax</td><td style="text-align:right">$ ${tax.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  <tr class="red-row"><td colspan="3" style="border:none"></td><td style="text-align:right">TOTAL (USD)</td><td style="text-align:right">$ ${total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr></table>
+  ${(q.inclusions?.length||q.exclusions?.length)?`<table><tr><td class="sec-hdr" style="width:50%">INCLUSIONS</td><td class="sec-hdr" style="width:50%">EXCLUSIONS</td></tr><tr><td class="bg"><ul style="margin:0;padding-left:14pt">${(q.inclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></td><td class="bg"><ul style="margin:0;padding-left:14pt">${(q.exclusions||[]).map(x=>`<li>${x}</li>`).join('')}</ul></td></tr></table>`:''}
+  ${q.notes?`<table><tr><td class="sec-hdr">NOTES</td></tr><tr><td class="bg"><ul style="margin:0;padding-left:14pt">${String(q.notes).split(/\n/).filter(x=>x.trim()).map(x=>`<li>${x}</li>`).join('')}</ul></td></tr></table>`:''}
+  <table><tr><td class="sec-hdr" style="width:50%">AUTHORIZED BY – RED RIVER INDUSTRIAL GROUP INC.</td><td class="sec-hdr" style="width:50%">CLIENT ACCEPTANCE</td></tr>
+  <tr><td class="bg" style="height:70pt">Signature:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Name: ${q.preparedBy||''}<br><br>Title:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Date:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+  <td class="bg" style="height:70pt">Signature:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Name:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Title:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Date:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr></table>
+  <p style="text-align:center;font-style:italic;color:#888;font-size:8pt">Price guaranteed for 30 days from date of quotation. Thank you for the opportunity to provide this quotation.</p>`;
+  _dlWord(q.id+'.doc', html);
+}
+
 function wordInvoice(id){
   const inv=DB.invoices.find(x=>x.id===id);
   const cu=DB.customers.find(x=>x.id===inv.custId)||{};
   const job=DB.jobs.find(x=>x.id===inv.jobId)||{};
-  dlDocx(id+'.docx',INV_TPL,function(xml){ return modifyInvoice(xml,inv,cu,job); });
+  const sub=lineTotal(inv.items), tax=sub*(+(inv.taxRate)||0)/100, total=sub+tax;
+  const H=(l,v)=>`<td class="lbl bg">${l}</td><td class="bg">${v||'&nbsp;'}</td>`;
+  const html=`
+  <table><tr>
+    <td style="background:#1A2332;color:white;width:60%;padding:12pt 14pt"><div style="font-size:14pt;font-weight:bold">RED RIVER INDUSTRIAL GROUP INC.</div><div style="font-size:8pt;opacity:.8;margin-top:3pt">${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip}<br>${COMPANY.phone} &nbsp;|&nbsp; ${COMPANY.email} &nbsp;|&nbsp; ${COMPANY.website}</div></td>
+    <td style="background:#1A2332;color:white;width:40%;padding:12pt 14pt;text-align:right"><div style="color:#C0392B;font-size:18pt;font-weight:bold">INVOICE</div><div style="font-size:13pt;font-weight:bold">${inv.id}</div></td>
+  </tr></table>
+  <table><tr><td class="sep">&nbsp;</td></tr></table>
+  <table><tr>
+    <td colspan="2" class="sec-hdr" style="width:50%">BILL TO</td>
+    <td colspan="2" class="sec-hdr" style="width:50%">INVOICE DETAILS</td>
+  </tr><tr>${H('Company:',cu.company)}${H('Invoice #:',inv.id)}</tr>
+  <tr>${H('Attention:',cu.contact)}${H('Quote Ref:',job.quoteId)}</tr>
+  <tr>${H('Address:',cu.addr)}${H('PO #:',inv.poNum)}</tr>
+  <tr>${H('Email:',cu.email)}${H('Invoice Date:',fmtDate(inv.date))}</tr>
+  <tr>${H('Phone:',cu.phone)}${H('Due Date:',fmtDate(inv.dueDate))}</tr>
+  <tr><td colspan="2" class="bg"></td>${H('Payment Terms:',inv.terms)}</tr></table>
+  <table><tr><td colspan="2" class="sec-hdr">PROJECT DETAILS</td></tr>
+  <tr>${H('Project Name / Job #:',(job.desc||'')+(job.id?' / Job # '+job.id:''))}</tr>
+  <tr>${H('Site / Location:',job.site)}</tr>
+  <tr>${H('Work Completed:',job.status)}</tr></table>
+  <table><tr class="navy-items-hdr"><th style="width:55%;text-align:left;color:white">Description</th><th style="width:8%;text-align:center;color:white">Qty</th><th style="width:8%;text-align:center;color:white">Unit</th><th style="width:14%;text-align:right;color:white">Unit Price</th><th style="width:15%;text-align:right;color:white">Amount</th></tr>
+  ${inv.items.map((it,i)=>`<tr style="background:${i%2?'#F5F3EE':'white'}"><td>${it.desc||''}</td><td style="text-align:center">${it.qty||''}</td><td style="text-align:center">${it.unit||''}</td><td style="text-align:right">${(+it.price||0).toFixed(2)}</td><td style="text-align:right">${((+it.qty||0)*(+it.price||0)).toFixed(2)}</td></tr>`).join('')}
+  <tr class="bg"><td colspan="3" style="border:none"></td><td style="text-align:right;font-weight:bold">Subtotal</td><td style="text-align:right">$ ${sub.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  <tr class="bg"><td colspan="3" style="border:none"></td><td style="text-align:right;font-weight:bold">Tax</td><td style="text-align:right">$ ${tax.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  <tr class="red-row"><td colspan="3" style="border:none"></td><td style="text-align:right">AMOUNT DUE (USD)</td><td style="text-align:right">$ ${total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr></table>
+  <table><tr><td class="sec-hdr">REMITTANCE INFORMATION</td></tr>
+  <tr><td class="bg"><table style="margin:0"><tr>${H('Bank Name:',COMPANY.bank)}</tr><tr>${H('Account Name:',COMPANY.acctName)}</tr><tr>${H('Account Number:',COMPANY.acctNum)}</tr><tr>${H('Routing / Wire #:',COMPANY.routing)}</tr><tr>${H('Reference:','Please include Invoice Number')}</tr></table></td></tr></table>
+  ${inv.notes?`<table><tr><td class="sec-hdr">NOTES / COMMENTS</td></tr><tr><td class="bg"><ul style="margin:0;padding-left:14pt">${String(inv.notes).split(/\n/).filter(x=>x.trim()).map(x=>`<li>${x}</li>`).join('')}</ul></td></tr></table>`:''}
+  <p style="text-align:center;font-style:italic;color:#888;font-size:8pt">Thank you for your business. Please contact us with any questions regarding this invoice.<br>${COMPANY.name} &nbsp;|&nbsp; ${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip} &nbsp;|&nbsp; ${COMPANY.phone}</p>`;
+  _dlWord(inv.id+'.doc', html);
 }
-function wordQuote(id){
-  const q=DB.quotes.find(x=>x.id===id);
-  const cu=DB.customers.find(x=>x.id===q.custId)||{};
-  dlDocx(id+'.docx',QT_TPL,function(xml){ return modifyQuote(xml,q,cu); });
-}
+
 function wordPO(id){
   const p=DB.pos.find(x=>x.id===id);
-  dlDocx(id+'.docx',PO_TPL,function(xml){ return modifyPO(xml,p); });
+  const sub=lineTotal(p.items), tax=sub*(+(p.taxRate)||0)/100, extra=+(p.ccFees)||0, total=sub+tax+extra;
+  const H=(l,v)=>`<td class="lbl bg">${l}</td><td class="bg">${v||'&nbsp;'}</td>`;
+  const TC=['Acceptance: Supplier acknowledges acceptance of this PO upon shipment or written confirmation.','Pricing: All prices are firm and include all applicable charges unless stated otherwise.','Taxes: Supplier must apply correct taxes per Texas and federal law unless exemption certificates are provided.','Delivery: Time is of the essence. Late delivery may result in cancellation without penalty to Red River Industrial Group Inc.','Quality: All goods/services must meet specifications. Non-conforming goods may be rejected at supplier expense.','Shipping: All shipments must reference the PO number. Damaged shipments may be refused.','Insurance: Supplier is responsible for maintaining adequate insurance for materials in transit.','Invoicing: Invoices must reference the PO number. Incorrect or incomplete invoices will delay payment.','Indemnification: Supplier agrees to indemnify Red River Industrial Group Inc. against all claims arising from supplied goods/services.','Cancellation: Red River Industrial Group Inc. may cancel this PO at any time for cause or convenience with written notice.'];
+  const html=`
+  <table><tr>
+    <td style="background:#1A2332;color:white;width:60%;padding:12pt 14pt"><div style="font-size:14pt;font-weight:bold">RED RIVER INDUSTRIAL GROUP INC.</div><div style="font-size:8pt;opacity:.8;margin-top:3pt">${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip}<br>${COMPANY.phone} &nbsp;|&nbsp; ${COMPANY.email} &nbsp;|&nbsp; ${COMPANY.website}</div></td>
+    <td style="background:#1A2332;color:white;width:40%;padding:12pt 14pt;text-align:right"><div style="color:#C0392B;font-size:18pt;font-weight:bold">PURCHASE ORDER</div><div style="font-size:13pt;font-weight:bold">${p.id}</div></td>
+  </tr></table>
+  <table><tr><td class="sep">&nbsp;</td></tr></table>
+  <table><tr>
+    <td colspan="2" class="sec-hdr" style="width:50%">VENDOR</td>
+    <td colspan="2" class="sec-hdr" style="width:50%">PO DETAILS</td>
+  </tr><tr>${H('Vendor Name:',p.vendor)}${H('PO Number:',p.id)}</tr>
+  <tr>${H('Contact:',p.vendorContact)}${H('Date Issued:',fmtDate(p.date))}</tr>
+  <tr>${H('Address:',p.vendorAddr)}${H('Delivery Date:',fmtDate(p.reqDate))}</tr>
+  <tr>${H('Phone:',p.vendorPhone)}${H('Payment Terms:',p.terms)}</tr>
+  <tr>${H('Email:',p.vendorEmail)}${H('Ship To:',p.shipTo)}</tr></table>
+  <table><tr>
+    <td colspan="2" class="sec-hdr" style="width:50%">SHIP TO / DELIVER TO</td>
+    <td colspan="2" class="sec-hdr" style="width:50%">REQUESTED BY</td>
+  </tr><tr>${H('Location / Site:',p.shipTo)}${H('Name:',p.attn)}</tr>
+  <tr>${H('Address:','')}${H('Title:','')}</tr>
+  <tr>${H('Attention:',p.attn)}${H('Department:','')}</tr></table>
+  <table><tr class="navy-items-hdr"><th style="width:5%;text-align:center;color:white">#</th><th style="width:50%;text-align:left;color:white">Item Description / Part Number</th><th style="width:8%;text-align:center;color:white">Qty</th><th style="width:8%;text-align:center;color:white">Unit</th><th style="width:14%;text-align:right;color:white">Unit Price</th><th style="width:15%;text-align:right;color:white">Total</th></tr>
+  ${p.items.map((it,i)=>`<tr style="background:${i%2?'#F5F3EE':'white'}"><td style="text-align:center;color:#888">${i+1}</td><td>${it.desc||''}</td><td style="text-align:center">${it.qty||''}</td><td style="text-align:center">${it.unit||''}</td><td style="text-align:right">${(+it.price||0).toFixed(2)}</td><td style="text-align:right">${((+it.qty||0)*(+it.price||0)).toFixed(2)}</td></tr>`).join('')}
+  <tr class="bg"><td colspan="4" style="border:none"></td><td style="text-align:right;font-weight:bold">Subtotal</td><td style="text-align:right">$ ${sub.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  <tr class="bg"><td colspan="4" style="border:none"></td><td style="text-align:right;font-weight:bold">Tax</td><td style="text-align:right">$ ${tax.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>
+  ${extra?`<tr class="bg"><td colspan="4" style="border:none"></td><td style="text-align:right;font-weight:bold">CC Fees</td><td style="text-align:right">$ ${extra.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr>`:''}
+  <tr class="red-row"><td colspan="4" style="border:none"></td><td style="text-align:right">PO TOTAL (USD)</td><td style="text-align:right">$ ${total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td></tr></table>
+  <table><tr><td class="sec-hdr">TERMS &amp; CONDITIONS</td></tr><tr><td class="bg"><ol style="margin:0;padding-left:16pt;font-size:9pt;line-height:1.7">${TC.map(t=>{const i=t.indexOf(':');return`<li><b>${t.slice(0,i)}:</b>${t.slice(i+1)}</li>`}).join('')}</ol></td></tr></table>
+  ${p.notes?`<table><tr><td class="sec-hdr">NOTES / SPECIAL INSTRUCTIONS</td></tr><tr><td class="bg"><ul style="margin:0;padding-left:14pt">${String(p.notes).split(/\n/).filter(x=>x.trim()).map(x=>`<li>${x}</li>`).join('')}</ul></td></tr></table>`:''}
+  <table><tr><td class="sec-hdr" style="width:50%">AUTHORIZED BY – RED RIVER INDUSTRIAL GROUP INC.</td><td class="sec-hdr" style="width:50%">VENDOR ACKNOWLEDGEMENT</td></tr>
+  <tr><td class="bg" style="height:70pt">Signature:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Name: Josh Kulbaba<br><br>Title:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Date:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+  <td class="bg" style="height:70pt">Signature:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Name:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Title:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br><br>Date:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr></table>`;
+  _dlWord(p.id+'.doc', html);
 }
 // ─── INIT ───────────────────────────────────────────────────────────────────
 loadDB();
