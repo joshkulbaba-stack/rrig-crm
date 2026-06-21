@@ -1078,12 +1078,13 @@ async function _getMsal(){
 }
 
 async function msSignIn(){
-  const app = await _getMsal();
   try {
+    if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
+    const app = await _getMsal();
+    alert('Redirecting to Microsoft login...');
     await app.loginRedirect({ scopes: _SCOPES });
   } catch(e) {
-    console.error(e);
-    alert('Sign-in failed: ' + e.message);
+    alert('Sign-in error: ' + (e.message || String(e)));
   }
 }
 
