@@ -1996,7 +1996,14 @@ function msSignOut(){
   _updateAuthUI();
 }
 
+// Always resolve the signed-in account from MSAL's cache (the global can lag on load)
+function _refreshAccount(){
+  try{ if(_msalApp){ const a=_msalApp.getAllAccounts(); if(a && a.length) _msalAccount=a[0]; } }catch(e){}
+  return _msalAccount;
+}
+
 function _updateAuthUI(){
+  _refreshAccount();
   const btn = document.getElementById('ms-auth-btn');
   if(!btn) return;
   if(_msalAccount){
@@ -2019,6 +2026,7 @@ async function _getToken(){
   const accounts = app.getAllAccounts();
   if(accounts.length > 0) _msalAccount = accounts[0];
   if(!_msalAccount) { alert('Please sign in with your RRIG Microsoft account first.'); return null; }
+  _updateAuthUI(); _updateSyncToggleUI();
   try {
     const r = await app.acquireTokenSilent({ scopes: _SCOPES, account: _msalAccount });
     return r.accessToken;
@@ -2193,7 +2201,7 @@ async function toggleLiveSync(){
     _liveSync = false; localStorage.setItem('rrig-livesync','0'); _updateSyncToggleUI(); _setSyncState('off'); return;
   }
   // turning ON
-  if(!_msalAccount){ alert('Sign in first to enable live sync.'); _updateSyncToggleUI(); return; }
+  if(!_refreshAccount()){ alert('Sign in first to enable live sync.'); _updateSyncToggleUI(); return; }
   const choice = prompt(
     'Enable Live Sync — choose direction:\n\n'+
     'Type  U  = UPLOAD this device\'s data to SharePoint (use THIS device as the master)\n'+
@@ -2231,6 +2239,7 @@ function restoreLocalBackup(){
 }
 
 function _updateSyncToggleUI(){
+  _refreshAccount();
   const btn = document.getElementById('sync-toggle-btn');
   if(btn){
     btn.textContent = _liveSync ? '🔄 Live Sync: On' : '⏸ Live Sync: Off';
