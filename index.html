@@ -413,7 +413,7 @@ const SEED = {
     quoteCategories:["Maintenance","Installation","Inspection","Switchgear","Controls","Other"],
     poCategories:["Materials","Subcontract","Equipment","Tools","Other"],
     fxCadToUsd:0.73,
-    editors:["joshkulbaba@gmail.com","josh@rrindgroup.onmicrosoft.com"]
+    editors:["joshkulbaba@gmail.com","josh@rrindgroup.onmicrosoft.com","josh@rrindgroup.com"]
   }
 };
 
@@ -429,6 +429,9 @@ function loadDB(){
     if(!DB.settings) DB.settings=JSON.parse(JSON.stringify(SEED.settings));
     // backfill any settings keys added in later versions
     Object.keys(SEED.settings).forEach(k=>{ if(DB.settings[k]===undefined) DB.settings[k]=JSON.parse(JSON.stringify(SEED.settings[k])); });
+    // ensure owner emails are always in the editors allowlist (existing localStorage may predate them)
+    if(!Array.isArray(DB.settings.editors)) DB.settings.editors=[];
+    ["joshkulbaba@gmail.com","josh@rrindgroup.onmicrosoft.com","josh@rrindgroup.com"].forEach(em=>{ if(!DB.settings.editors.map(e=>String(e).toLowerCase().trim()).includes(em)) DB.settings.editors.push(em); });
     return; }catch(e){} }
   DB = JSON.parse(JSON.stringify(SEED));
   saveDB();
