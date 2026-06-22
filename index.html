@@ -2194,6 +2194,14 @@ function _updateSyncToggleUI(){
 }
 
 // ─── EXCEL SYNC ─────────────────────────────────────────────────────────────
+// Robust money/number parse: strips $, commas, spaces, %, etc. ("76,575.00" -> 76575)
+function _num(val){
+  if(val==null||val==='') return 0;
+  if(typeof val==='number') return val;
+  const n = parseFloat(String(val).replace(/[^0-9.\-]/g,''));
+  return isNaN(n) ? 0 : n;
+}
+
 function _xlDate(val){
   if(!val) return '';
   if(val instanceof Date){ const d=val; return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); }
@@ -2226,6 +2234,9 @@ function _readSheet(wb, sheetName, idCol){
 }
 
 function _applyWorkbook(wb){
+    // Safety: snapshot current data before an import overwrites it
+    try{ localStorage.setItem('rrig-crm-backup', localStorage.getItem('rrig-crm-v1')||'');
+         localStorage.setItem('rrig-crm-backup-at', new Date().toISOString()); }catch(e){}
 
     // ── Customers ──
     const custRows=_readSheet(wb,'Customers','Cust ID');
@@ -2268,17 +2279,17 @@ function _applyWorkbook(wb){
           status:r['Status']||'Open',
           leadSource:r['Lead Source']||'',
           currency:r['Currency']||exist?.currency||'USD',
-          labourHrs:+(r['Labour Hrs']||0),
-          labourRate:+(r['Labour Rate ($/hr)']||0),
-          labour:+(r['Labour ($)']||0),
-          materials:+(r['Materials ($)']||0),
-          flights:+(r['Flights ($)']||0),
-          hotels:+(r['Hotels ($)']||0),
-          rental:+(r['Rental Vehicle ($)']||0),
-          loa:+(r['LOA ($)']||0),
-          fuel:+(r['Fuel ($)']||0),
-          other:+(r['Other/Misc ($)']||0),
-          quoteTotal:+(r['Quote Total ($)']||0),
+          labourHrs:_num(r['Labour Hrs']),
+          labourRate:_num(r['Labour Rate ($/hr)']),
+          labour:_num(r['Labour ($)']),
+          materials:_num(r['Materials ($)']),
+          flights:_num(r['Flights ($)']),
+          hotels:_num(r['Hotels ($)']),
+          rental:_num(r['Rental Vehicle ($)']),
+          loa:_num(r['LOA ($)']),
+          fuel:_num(r['Fuel ($)']),
+          other:_num(r['Other/Misc ($)']),
+          quoteTotal:_num(r['Quote Total ($)']),
           notes:exist?.notes||'',
           docUrl:exist?.docUrl||'',
         };
@@ -2299,15 +2310,15 @@ function _applyWorkbook(wb){
           status:r['Status']||'Active',
           startDate:_xlDate(r['Start Date']),
           endDate:_xlDate(r['End Date']),
-          contractValue:+(r['Contract Value ($)']||0),
+          contractValue:_num(r['Contract Value ($)']),
           pm:r['Project Manager']||'',
-          budgetLabour:+(r['Budgeted Labour ($)']||0),
-          budgetMaterials:+(r['Budgeted Materials ($)']||0),
-          budgetSub:+(r['Budgeted Subcontract ($)']||0),
-          actualCosts:+(r['Actual Costs ($)']||0),
-          actualLabour:+(r['Actual Labour ($)']||exist?.actualLabour||0),
-          actualMaterials:+(r['Actual Materials ($)']||exist?.actualMaterials||0),
-          actualSub:+(r['Actual Subcontract ($)']||exist?.actualSub||0),
+          budgetLabour:_num(r['Budgeted Labour ($)']),
+          budgetMaterials:_num(r['Budgeted Materials ($)']),
+          budgetSub:_num(r['Budgeted Subcontract ($)']),
+          actualCosts:_num(r['Actual Costs ($)']),
+          actualLabour:_num(r['Actual Labour ($)'])||exist?.actualLabour||0,
+          actualMaterials:_num(r['Actual Materials ($)'])||exist?.actualMaterials||0,
+          actualSub:_num(r['Actual Subcontract ($)'])||exist?.actualSub||0,
           notes:exist?.notes||'',
         };
       });
@@ -2327,7 +2338,7 @@ function _applyWorkbook(wb){
           poNum:r['Client PO #']||r['PO #']||exist?.poNum||'',
           terms:r['Payment Terms']||exist?.terms||'Net 30',
           currency:r['Currency']||exist?.currency||'USD',
-          amount:+(r['Invoice Amount ($)']||0),
+          amount:_num(r['Invoice Amount ($)']),
           taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
           status:r['Status']||'Unpaid',
           datePaid:_xlDate(r['Date Paid']),
@@ -2361,8 +2372,8 @@ function _applyWorkbook(wb){
           attn:r['Attention']||r['Attn']||exist?.attn||'',
           currency:r['Currency']||exist?.currency||'USD',
           taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
-          amount:+(r['PO Amount ($)']||0),
-          ccFees:+(r['CC/Other Fees ($)']||r['CC Fees ($)']||0),
+          amount:_num(r['PO Amount ($)']),
+          ccFees:_num(r['CC/Other Fees ($)']||r['CC Fees ($)']),
           status:r['Status']||'Open',
           notes:exist?.notes||'',
           docUrl:exist?.docUrl||'',
