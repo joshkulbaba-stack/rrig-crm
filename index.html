@@ -1338,10 +1338,11 @@ function saveVendor(id){
 function deleteVendor(id){ const o=DB.vendors.find(x=>x.id===id); if(!confirm('Delete vendor "'+((o&&o.company)||id)+'"?\n\nThis cannot be undone.')) return; DB.vendors=DB.vendors.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── JOB P&L ────────────────────────────────────────────────────────────────
-// Job actual cost: prefer the labour/materials/sub/other breakdown; fall back to the single Actual Costs field
+// Job actual cost: use the Jobs-tab "Actual Costs ($)" column (Q) as the source of truth;
+// fall back to the labour/materials/sub/other breakdown only if that column is blank.
 function jobCost(j){
-  const bd=(+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0);
-  return bd>0 ? bd : (+j.actualCosts||0);
+  if(j.actualCosts!=null && j.actualCosts!=='' && +j.actualCosts>0) return +j.actualCosts;
+  return (+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0);
 }
 
 function renderJobPL(c,a){
