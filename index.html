@@ -412,6 +412,9 @@ function badgeClass(s){
   return m[s]||'b-draft';
 }
 
+function openDoc(url){ window.open(decodeURIComponent(url),'_blank'); }
+function _docBtn(url){ return url?'<button class="btn btn-outline btn-xs" onclick="openDoc(\''+encodeURIComponent(url)+'\')">📄 Open Doc</button>':''; }
+
 // ─── NAVIGATION ─────────────────────────────────────────────────────────────
 function toggleSidebar(){
   document.getElementById('sidebar').classList.toggle('open');
@@ -614,7 +617,7 @@ function renderQuotes(c,a){
         <td><span class="badge ${badgeClass(q.status)}">${q.status}</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-gold btn-xs" onclick="previewQuote('${q.id}')">Preview</button>
-          ${q.docUrl?`<button class="btn btn-outline btn-xs" onclick="window.open('${q.docUrl}','_blank')">📄 Open Doc</button>`:''}
+          ${_docBtn(q.docUrl)}
           <button class="btn btn-outline btn-xs" onclick="editQuote('${q.id}')">Edit</button>
           <button class="btn btn-danger btn-xs" onclick="deleteQuote('${q.id}')">Del</button>
         </td>
@@ -813,7 +816,7 @@ function renderInvoices(c,a){
           <td><span class="badge ${badgeClass(i.status)}">${i.status}</span></td>
           <td style="white-space:nowrap">
             <button class="btn btn-gold btn-xs" onclick="previewInvoice('${i.id}')">Preview</button>
-            ${i.docUrl?`<button class="btn btn-outline btn-xs" onclick="window.open('${i.docUrl}','_blank')">📄 Open Doc</button>`:''}
+            ${_docBtn(i.docUrl)}
             <button class="btn btn-outline btn-xs" onclick="editInvoice('${i.id}')">Edit</button>
             <button class="btn btn-danger btn-xs" onclick="deleteInvoice('${i.id}')">Del</button>
           </td>
@@ -896,7 +899,7 @@ function renderPOs(c,a){
           <td><span class="badge ${badgeClass(p.status)}">${p.status}</span></td>
           <td style="white-space:nowrap">
             <button class="btn btn-gold btn-xs" onclick="previewPO('${p.id}')">Preview</button>
-            ${p.docUrl?`<button class="btn btn-outline btn-xs" onclick="window.open('${p.docUrl}','_blank')">📄 Open Doc</button>`:''}
+            ${_docBtn(p.docUrl)}
             <button class="btn btn-outline btn-xs" onclick="editPO('${p.id}')">Edit</button>
             <button class="btn btn-danger btn-xs" onclick="deletePO('${p.id}')">Del</button>
           </td>
