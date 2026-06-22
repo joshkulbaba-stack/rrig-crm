@@ -2117,7 +2117,9 @@ function _setSyncState(s, msg){
   const map = { idle:['', ''], off:['Live sync off','#888'], pulling:['Syncing…','#C08A2B'],
     pushing:['Saving…','#C08A2B'], ok:['✓ Synced','#1A7F37'], error:['⚠ Sync error','#C0392B'] };
   const [txt,col] = map[s] || ['',''];
-  el.textContent = msg || txt;
+  if(s==='ok' && msg) localStorage.setItem('rrig-last-sync-msg', msg);
+  const display = msg || (s==='ok' ? (localStorage.getItem('rrig-last-sync-msg')||txt) : txt);
+  el.textContent = display;
   el.style.color = col;
 }
 
