@@ -478,7 +478,7 @@ function render(){
 
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard(c,a){
-  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
+  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-outline btn-sm" onclick="restoreLocalBackup()" title="Restore the auto-backup taken before the last sync overwrite">↩ Restore Backup</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
   setTimeout(()=>{ _updateAuthUI(); _updateSyncToggleUI(); }, 100);
   const quotedVal = DB.quotes.reduce((s,q)=>s+quoteVal(q),0);
   const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+(+j.contractValue||0),0);
@@ -2001,6 +2001,9 @@ async function syncPull(silent){
       _setSyncState('ok','✓ Synced (created)');
       return;
     }
+    // Safety: back up current local data before overwriting it
+    try{ localStorage.setItem('rrig-crm-backup', localStorage.getItem('rrig-crm-v1')||'');
+         localStorage.setItem('rrig-crm-backup-at', new Date().toISOString()); }catch(e){}
     _applyingRemote = true;
     delete remote._savedAt;
     DB = remote;
@@ -2029,16 +2032,47 @@ function syncPushSoon(){
   }, 1500);
 }
 
-function toggleLiveSync(){
-  _liveSync = !_liveSync;
-  localStorage.setItem('rrig-livesync', _liveSync ? '1' : '0');
-  _updateSyncToggleUI();
+async function toggleLiveSync(){
   if(_liveSync){
-    if(!_msalAccount){ alert('Sign in first to enable live sync.'); _liveSync=false; localStorage.setItem('rrig-livesync','0'); _updateSyncToggleUI(); return; }
-    syncPull(false);
-  } else {
-    _setSyncState('off');
+    // turning OFF
+    _liveSync = false; localStorage.setItem('rrig-livesync','0'); _updateSyncToggleUI(); _setSyncState('off'); return;
   }
+  // turning ON
+  if(!_msalAccount){ alert('Sign in first to enable live sync.'); _updateSyncToggleUI(); return; }
+  const choice = prompt(
+    'Enable Live Sync — choose direction:\n\n'+
+    'Type  U  = UPLOAD this device\'s data to SharePoint (use THIS device as the master)\n'+
+    'Type  D  = DOWNLOAD from SharePoint onto this device (overwrite this device)\n\n'+
+    'If your links are on THIS device, choose U.', 'U');
+  if(choice===null){ _updateSyncToggleUI(); return; } // cancelled
+  const c = choice.trim().toUpperCase();
+  _liveSync = true; localStorage.setItem('rrig-livesync','1'); _updateSyncToggleUI();
+  try{
+    const token = await _getToken(); if(!token){ _setSyncState('idle'); return; }
+    if(c==='D'){
+      await syncPull(false);        // pull cloud onto this device
+    } else {
+      _setSyncState('pushing');
+      await _pushDataFile(token);    // push this device up as master
+      _setSyncState('ok','✓ Uploaded');
+      alert('This device\'s data is now the master copy on SharePoint.');
+    }
+  }catch(e){ console.error(e); _setSyncState('error'); alert('Sync setup failed: '+e.message); }
+}
+
+function restoreLocalBackup(){
+  const bk = localStorage.getItem('rrig-crm-backup');
+  const at = localStorage.getItem('rrig-crm-backup-at');
+  if(!bk){ alert('No local backup found on this device.'); return; }
+  if(!confirm('Restore the data snapshot from '+(at||'an earlier point')+'?\n\nThis replaces current data on this device. If Live Sync is on, it will then push back up to SharePoint.')) return;
+  try{
+    DB = JSON.parse(bk);
+    if(!DB.resources) DB.resources = JSON.parse(JSON.stringify(SEED.resources));
+    if(!DB.vendors)   DB.vendors   = JSON.parse(JSON.stringify(SEED.vendors));
+    if(!DB.settings)  DB.settings  = JSON.parse(JSON.stringify(SEED.settings));
+    saveDB(); render();
+    alert('Backup restored.');
+  }catch(e){ alert('Restore failed: '+e.message); }
 }
 
 function _updateSyncToggleUI(){
