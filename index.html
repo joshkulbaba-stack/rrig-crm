@@ -582,7 +582,8 @@ function saveClient(id){
 }
 
 function deleteClient(id){
-  if(!confirm('Delete this client?')) return;
+  const o=DB.customers.find(x=>x.id===id);
+  if(!confirm('Delete client "'+((o&&o.company)||id)+'"?\n\nThis cannot be undone.')) return;
   DB.customers=DB.customers.filter(x=>x.id!==id); saveDB(); render();
 }
 
@@ -635,7 +636,7 @@ function saveContact(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteContact(id){ if(!confirm('Delete?')) return; DB.contacts=DB.contacts.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteContact(id){ const o=DB.contacts.find(x=>x.id===id); if(!confirm('Delete contact "'+((o&&(o.name||o.company))||id)+'"?\n\nThis cannot be undone.')) return; DB.contacts=DB.contacts.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── QUOTES ─────────────────────────────────────────────────────────────────
 function renderQuotes(c,a){
@@ -753,7 +754,7 @@ function saveQuote(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteQuote(id){ if(!confirm('Delete?')) return; DB.quotes=DB.quotes.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteQuote(id){ if(!confirm('Delete quote "'+id+'"?\n\nThis cannot be undone.')) return; DB.quotes=DB.quotes.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── JOBS ───────────────────────────────────────────────────────────────────
 function renderJobs(c,a){
@@ -843,7 +844,7 @@ function saveJob(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteJob(id){ if(!confirm('Delete?')) return; DB.jobs=DB.jobs.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteJob(id){ if(!confirm('Delete job "'+id+'"?\n\nThis cannot be undone.')) return; DB.jobs=DB.jobs.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── INVOICES ───────────────────────────────────────────────────────────────
 function renderInvoices(c,a){
@@ -945,7 +946,7 @@ function saveInvoice(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteInvoice(id){ if(!confirm('Delete?')) return; DB.invoices=DB.invoices.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteInvoice(id){ if(!confirm('Delete invoice "'+id+'"?\n\nThis cannot be undone.')) return; DB.invoices=DB.invoices.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── PURCHASE ORDERS ────────────────────────────────────────────────────────
 function renderPOs(c,a){
@@ -1061,7 +1062,7 @@ function savePO(id){
   saveDB(); closeModal(); render();
 }
 
-function deletePO(id){ if(!confirm('Delete?')) return; DB.pos=DB.pos.filter(x=>x.id!==id); saveDB(); render(); }
+function deletePO(id){ if(!confirm('Delete purchase order "'+id+'"?\n\nThis cannot be undone.')) return; DB.pos=DB.pos.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── H&S DOCUMENTS ──────────────────────────────────────────────────────────
 function renderHSDocs(c,a){
@@ -1114,7 +1115,7 @@ function saveHSDoc(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteHSDoc(id){ if(!confirm('Delete?')) return; DB.hsdocs=DB.hsdocs.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteHSDoc(id){ const o=DB.hsdocs.find(x=>x.id===id); if(!confirm('Delete document "'+((o&&o.name)||id)+'"?\n\nThis cannot be undone.')) return; DB.hsdocs=DB.hsdocs.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── RESOURCES ──────────────────────────────────────────────────────────────
 const RES_CATS=['Templates','Logos & Branding','Corporate Files','Other'];
@@ -1168,7 +1169,7 @@ function saveResource(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteResource(id){ if(!confirm('Delete?')) return; DB.resources=DB.resources.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteResource(id){ const o=DB.resources.find(x=>x.id===id); if(!confirm('Delete resource "'+((o&&o.name)||id)+'"?\n\nThis cannot be undone.')) return; DB.resources=DB.resources.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── VENDORS ────────────────────────────────────────────────────────────────
 function renderVendors(c,a){
@@ -1219,7 +1220,7 @@ function saveVendor(id){
   saveDB(); closeModal(); render();
 }
 
-function deleteVendor(id){ if(!confirm('Delete?')) return; DB.vendors=DB.vendors.filter(x=>x.id!==id); saveDB(); render(); }
+function deleteVendor(id){ const o=DB.vendors.find(x=>x.id===id); if(!confirm('Delete vendor "'+((o&&o.company)||id)+'"?\n\nThis cannot be undone.')) return; DB.vendors=DB.vendors.filter(x=>x.id!==id); saveDB(); render(); }
 
 // ─── JOB P&L ────────────────────────────────────────────────────────────────
 function jobCost(j){ return (+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0); }
