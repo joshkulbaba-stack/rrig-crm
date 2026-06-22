@@ -403,8 +403,12 @@ const fmtDate = d => { if(!d) return '—'; const p=String(d).split('-'); if(p.l
 const today = () => new Date().toISOString().split('T')[0];
 const addDays = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt.toISOString().split('T')[0]; };
 function custName(id){ const c=DB.customers.find(x=>x.id===id); return c?c.company:id; }
-function lineTotal(items){ return items.reduce((s,i)=>(s+(+i.qty||0)*(+i.price||0)),0); }
+function lineTotal(items){ return (items||[]).reduce((s,i)=>(s+(+i.qty||0)*(+i.price||0)),0); }
 function lineSubtotal(items){ return lineTotal(items); }
+// Stored-total helpers (new flat model with legacy line-item fallback)
+function quoteVal(q){ return q.quoteTotal!=null&&q.quoteTotal!=='' ? +q.quoteTotal : lineTotal(q.items); }
+function invSub(i){ return i.amount!=null&&i.amount!=='' ? +i.amount : lineTotal(i.items); }
+function poSub(p){ return p.amount!=null&&p.amount!=='' ? +p.amount : lineTotal(p.items); }
 function nextId(prefix,arr){ const nums=arr.map(x=>parseInt(x.id.split('-').pop())||0); return prefix+'-'+(Math.max(0,...nums)+1).toString().padStart(3,'0'); }
 
 function badgeClass(s){
@@ -447,11 +451,11 @@ function render(){
 function renderDashboard(c,a){
   a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()">☁️ Import SharePoint</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()">☁️ Export SharePoint</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
   setTimeout(_updateAuthUI, 100);
-  const quotedVal = DB.quotes.reduce((s,q)=>s+lineTotal(q.items),0);
+  const quotedVal = DB.quotes.reduce((s,q)=>s+quoteVal(q),0);
   const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+(+j.contractValue||0),0);
-  const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=lineTotal(i.items); return s+sub+(sub*(+i.taxRate||0)/100); },0);
-  const outstandingAR = DB.invoices.filter(i=>i.status!=='Paid').reduce((s,i)=>{ const sub=lineTotal(i.items); return s+sub+(sub*(+i.taxRate||0)/100); },0);
-  const poSpend = DB.pos.reduce((s,p)=>{ const sub=lineTotal(p.items); return s+sub+(sub*(+p.taxRate||0)/100)+(+p.ccFees||0); },0);
+  const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=invSub(i); return s+sub+(sub*(+i.taxRate||0)/100); },0);
+  const outstandingAR = DB.invoices.filter(i=>i.status!=='Paid').reduce((s,i)=>{ const sub=invSub(i); return s+sub+(sub*(+i.taxRate||0)/100); },0);
+  const poSpend = DB.pos.reduce((s,p)=>{ const sub=poSub(p); return s+sub+(sub*(+p.taxRate||0)/100)+(+p.ccFees||0); },0);
   const avgMargin = DB.jobs.length ? (DB.jobs.reduce((s,j)=>{
     const rev=+j.contractValue||0; const cost=(+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0);
     return s+(rev>0?(rev-cost)/rev:0);
@@ -472,7 +476,7 @@ function renderDashboard(c,a){
       <div class="tbl-wrap"><table>
         <thead><tr><th>Invoice #</th><th>Client</th><th>Amount</th><th>Status</th></tr></thead>
         <tbody>${DB.invoices.slice(-5).reverse().map(i=>{
-          const sub=lineTotal(i.items); const total=sub+(sub*(+i.taxRate||0)/100);
+          const sub=invSub(i); const total=sub+(sub*(+i.taxRate||0)/100);
           return `<tr onclick="nav('invoices')"><td>${i.id}</td><td>${custName(i.custId)}</td><td>${fmt$(total)}</td><td><span class="badge ${badgeClass(i.status)}">${i.status}</span></td></tr>`;
         }).join('')}</tbody>
       </table></div>
@@ -489,7 +493,7 @@ function renderDashboard(c,a){
     <div class="card-hdr"><span class="card-title">Quote Pipeline</span><button class="btn btn-outline btn-sm" onclick="nav('quotes')">View All</button></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Quote #</th><th>Client</th><th>Project</th><th>Value</th><th>Status</th></tr></thead>
-      <tbody>${DB.quotes.map(q=>`<tr onclick="nav('quotes')"><td>${q.id}</td><td>${custName(q.custId)}</td><td>${q.project}</td><td>${fmt$(lineTotal(q.items))}</td><td><span class="badge ${badgeClass(q.status)}">${q.status}</span></td></tr>`).join('')}</tbody>
+      <tbody>${DB.quotes.map(q=>`<tr onclick="nav('quotes')"><td>${q.id}</td><td>${custName(q.custId)}</td><td>${q.project}</td><td>${fmt$(quoteVal(q))}</td><td><span class="badge ${badgeClass(q.status)}">${q.status}</span></td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;
 }
@@ -613,7 +617,7 @@ function renderQuotes(c,a){
       <thead><tr><th>Quote #</th><th>Date</th><th>Client</th><th>Project</th><th>Site</th><th>Value</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.quotes.map(q=>`<tr>
         <td><strong>${q.id}</strong></td><td>${fmtDate(q.date)}</td><td>${custName(q.custId)}</td>
-        <td>${q.project}</td><td>${q.site||'—'}</td><td>${fmt$(lineTotal(q.items))}</td>
+        <td>${q.project}</td><td>${q.site||'—'}</td><td>${fmt$(quoteVal(q))}</td>
         <td><span class="badge ${badgeClass(q.status)}">${q.status}</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-gold btn-xs" onclick="previewQuote('${q.id}')">Preview</button>
@@ -627,51 +631,6 @@ function renderQuotes(c,a){
 }
 
 let editingLineItems = [];
-
-function editQuote(id){
-  const q = id ? DB.quotes.find(x=>x.id===id) : {
-    id:'',date:today(),validUntil:addDays(today(),30),custId:'',currency:'USD',
-    project:'',site:'',category:'Maintenance',status:'Draft',
-    preparedBy:'Trevor Snodgrass',preparedByEmail:'trevor@rrindgroup.com',
-    items:[{desc:'',qty:1,unit:'EA',price:0}],
-    inclusions:[],exclusions:[],notes:''
-  };
-  editingLineItems = JSON.parse(JSON.stringify(q.items));
-  document.getElementById('modal-title').textContent = id?'Edit Quote':'New Quote';
-  document.getElementById('modal').className='modal modal-lg';
-  document.getElementById('modal-body').innerHTML=`
-    <div class="form-grid">
-      <div class="fg"><label>Client</label><select id="q-cust">
-        <option value="">— Select —</option>
-        ${DB.customers.map(cu=>`<option value="${cu.id}" ${q.custId===cu.id?'selected':''}>${cu.company}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>Status</label><select id="q-status">
-        ${['Draft','Sent','Awarded','Lost'].map(s=>`<option ${q.status===s?'selected':''}>${s}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>Project Name</label><input id="q-project" value="${q.project}"></div>
-      <div class="fg"><label>Site / Location</label><input id="q-site" value="${q.site||''}"></div>
-      <div class="fg"><label>Quote Date</label><input id="q-date" type="date" value="${q.date}"></div>
-      <div class="fg"><label>Valid Until</label><input id="q-valid" type="date" value="${q.validUntil||''}"></div>
-      <div class="fg"><label>Category</label><select id="q-cat">
-        ${['Maintenance','Installation','Inspection','Other'].map(s=>`<option ${q.category===s?'selected':''}>${s}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>Currency</label><select id="q-currency"><option ${q.currency==='USD'?'selected':''}>USD</option><option ${q.currency==='CAD'?'selected':''}>CAD</option></select></div>
-      <div class="fg"><label>Prepared By</label><input id="q-by" value="${q.preparedBy||''}"></div>
-      <div class="fg"><label>Prepared By Email</label><input id="q-byemail" value="${q.preparedByEmail||''}"></div>
-    </div>
-    <div class="section-divider">Line Items</div>
-    <div id="li-container">${renderLineItemsEditor()}</div>
-    <button class="btn btn-outline btn-sm" style="margin-bottom:16px" onclick="addLineItem()">+ Add Line</button>
-    <div class="section-divider">Inclusions / Exclusions / Notes</div>
-    <div class="form-grid">
-      <div class="fg"><label>Inclusions (one per line)</label><textarea id="q-incl" style="min-height:100px">${(q.inclusions||[]).join('\n')}</textarea></div>
-      <div class="fg"><label>Exclusions (one per line)</label><textarea id="q-excl" style="min-height:100px">${(q.exclusions||[]).join('\n')}</textarea></div>
-      <div class="fg full"><label>Notes</label><textarea id="q-notes">${q.notes||''}</textarea></div>
-      <div class="fg full"><label>Word Document URL (SharePoint/OneDrive link)</label><input id="q-docurl" value="${q.docUrl||''}" placeholder="Paste SharePoint or OneDrive link here"></div>
-    </div>`;
-  document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveQuote('${id||''}')">Save Quote</button>`;
-  showModal();
-}
 
 function renderLineItemsEditor(){
   const rows = editingLineItems.map((li,i)=>`<tr>
@@ -687,21 +646,79 @@ function renderLineItemsEditor(){
     <tbody>${rows}</tbody>
   </table>`;
 }
-
 function updateLiTotal(i){ const el=document.getElementById('li-tot-'+i); if(el) el.textContent=fmt$(editingLineItems[i].qty*editingLineItems[i].price); }
 function addLineItem(){ editingLineItems.push({desc:'',qty:1,unit:'EA',price:0}); document.getElementById('li-container').innerHTML=renderLineItemsEditor(); }
 function removeLineItem(i){ editingLineItems.splice(i,1); document.getElementById('li-container').innerHTML=renderLineItemsEditor(); }
 
+// Cost-bucket fields shared by the quote form (matches spreadsheet Quotes tab)
+const QUOTE_BUCKETS=[['labour','Labour ($)'],['materials','Materials ($)'],['flights','Flights ($)'],['hotels','Hotels ($)'],['rental','Rental Vehicle ($)'],['loa','LOA ($)'],['fuel','Fuel ($)'],['other','Other / Misc ($)']];
+
+function recalcQuoteTotal(){
+  let sum=0;
+  QUOTE_BUCKETS.forEach(([k])=>{ const el=document.getElementById('q-'+k); if(el) sum+=+el.value||0; });
+  const t=document.getElementById('q-total'); if(t) t.value=sum.toFixed(2);
+  const lbl=document.getElementById('q-total-lbl'); if(lbl) lbl.textContent=fmt$(sum);
+}
+
+function editQuote(id){
+  const q = id ? DB.quotes.find(x=>x.id===id) : {
+    id:'',date:today(),validUntil:addDays(today(),30),custId:'',currency:'USD',
+    project:'',site:'',category:'Maintenance',status:'Open',leadSource:'',
+    labourHrs:0,labourRate:95,labour:0,materials:0,flights:0,hotels:0,rental:0,loa:0,fuel:0,other:0,
+    quoteTotal:0,notes:'',docUrl:''
+  };
+  document.getElementById('modal-title').textContent = id?'Edit Quote':'New Quote';
+  document.getElementById('modal').className='modal modal-lg';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="form-grid">
+      <div class="fg"><label>Client</label><select id="q-cust">
+        <option value="">— Select —</option>
+        ${DB.customers.map(cu=>`<option value="${cu.id}" ${q.custId===cu.id?'selected':''}>${cu.company}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>Status</label><select id="q-status">
+        ${['Open','Sent','Won','Lost','Cancelled'].map(s=>`<option ${q.status===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>Project / Scope</label><input id="q-project" value="${q.project||''}"></div>
+      <div class="fg"><label>Site / Location</label><input id="q-site" value="${q.site||''}"></div>
+      <div class="fg"><label>Quote Date</label><input id="q-date" type="date" value="${q.date||''}"></div>
+      <div class="fg"><label>Valid Until</label><input id="q-valid" type="date" value="${q.validUntil||''}"></div>
+      <div class="fg"><label>Category</label><select id="q-cat">
+        ${['Maintenance','Installation','Inspection','Switchgear','Controls','Other'].map(s=>`<option ${q.category===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>Currency</label><select id="q-currency"><option ${q.currency==='USD'?'selected':''}>USD</option><option ${q.currency==='CAD'?'selected':''}>CAD</option></select></div>
+      <div class="fg"><label>Lead Source</label><input id="q-lead" value="${q.leadSource||''}"></div>
+    </div>
+    <div class="section-divider">Cost Breakdown</div>
+    <div class="form-grid-3">
+      <div class="fg"><label>Labour Hrs</label><input id="q-labourHrs" type="number" step="0.5" value="${q.labourHrs||0}"></div>
+      <div class="fg"><label>Labour Rate ($/hr)</label><input id="q-labourRate" type="number" step="0.01" value="${q.labourRate||0}"></div>
+      <div class="fg"><label>Labour ($)</label><input id="q-labour" type="number" step="0.01" value="${q.labour||0}" oninput="recalcQuoteTotal()"></div>
+      ${QUOTE_BUCKETS.filter(([k])=>k!=='labour').map(([k,lbl])=>`<div class="fg"><label>${lbl}</label><input id="q-${k}" type="number" step="0.01" value="${q[k]||0}" oninput="recalcQuoteTotal()"></div>`).join('')}
+    </div>
+    <div class="form-grid" style="margin-top:8px">
+      <div class="fg"><label>Quote Total ($) — <span id="q-total-lbl">${fmt$(quoteVal(q))}</span></label><input id="q-total" type="number" step="0.01" value="${(q.quoteTotal!=null&&q.quoteTotal!=='')?q.quoteTotal:quoteVal(q)}"></div>
+    </div>
+    <div class="section-divider">Notes / Document</div>
+    <div class="form-grid">
+      <div class="fg full"><label>Notes</label><textarea id="q-notes">${q.notes||''}</textarea></div>
+      <div class="fg full"><label>Word Document URL (SharePoint/OneDrive link)</label><input id="q-docurl" value="${q.docUrl||''}" placeholder="Paste SharePoint or OneDrive link here"></div>
+    </div>`;
+  document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveQuote('${id||''}')">Save Quote</button>`;
+  // auto-fill Labour $ from hrs×rate when either changes
+  ['q-labourHrs','q-labourRate'].forEach(idd=>{ const el=document.getElementById(idd); if(el) el.addEventListener('input',()=>{ const h=+v('q-labourHrs')||0,r=+v('q-labourRate')||0; document.getElementById('q-labour').value=(h*r).toFixed(2); recalcQuoteTotal(); }); });
+  showModal();
+}
+
 function saveQuote(id){
+  const num=idd=>+v(idd)||0;
   const obj={
     id:id||nextId('QT-2026',DB.quotes),
     date:v('q-date'),validUntil:v('q-valid'),custId:v('q-cust'),currency:v('q-currency'),
-    project:v('q-project'),site:v('q-site'),category:v('q-cat'),status:v('q-status'),
-    preparedBy:v('q-by'),preparedByEmail:v('q-byemail'),
-    items:JSON.parse(JSON.stringify(editingLineItems)),
-    inclusions:v('q-incl').split('\n').map(s=>s.trim()).filter(Boolean),
-    exclusions:v('q-excl').split('\n').map(s=>s.trim()).filter(Boolean),
-    notes:v('q-notes'),docUrl:v('q-docurl')
+    project:v('q-project'),site:v('q-site'),category:v('q-cat'),status:v('q-status'),leadSource:v('q-lead'),
+    labourHrs:num('q-labourHrs'),labourRate:num('q-labourRate'),labour:num('q-labour'),
+    materials:num('q-materials'),flights:num('q-flights'),hotels:num('q-hotels'),
+    rental:num('q-rental'),loa:num('q-loa'),fuel:num('q-fuel'),other:num('q-other'),
+    quoteTotal:num('q-total'),notes:v('q-notes'),docUrl:v('q-docurl')
   };
   if(id){ const i=DB.quotes.findIndex(x=>x.id===id); DB.quotes[i]=obj; }
   else DB.quotes.push(obj);
@@ -1075,7 +1092,7 @@ function docTotals(sub,taxRate,extra){
 function previewQuote(id){
   const q = DB.quotes.find(x=>x.id===id);
   const cu = DB.customers.find(x=>x.id===q.custId)||{};
-  const sub = lineTotal(q.items);
+  const sub = quoteVal(q);
   const taxRate = cu.taxRate||0;
   const tax = sub*taxRate/100;
   const total = sub+tax;
@@ -1109,8 +1126,8 @@ function previewQuote(id){
               ${_lbl('Quote #:',q.id)}
               ${_lbl('Date:',fmtDate(q.date))}
               ${_lbl('Valid Until:',fmtDate(q.validUntil)||'30 days from issue')}
-              ${_lbl('Prepared By:',q.preparedBy||'')}
-              ${_lbl('Email:',q.preparedByEmail||'')}
+              ${_lbl('Category:',q.category||'')}
+              ${_lbl('Lead Source:',q.leadSource||'')}
             </table>
           </td>
         </tr>
@@ -1128,61 +1145,38 @@ function previewQuote(id){
         </td></tr>
       </table>
 
-      <!-- LINE ITEMS -->
-      <table style="${T};margin-bottom:0;border-collapse:collapse">
+      <!-- COST BREAKDOWN -->
+      ${(()=>{
+        const rows=[['Labour',q.labour,q.labourHrs?`${q.labourHrs} hr @ ${fmt$(q.labourRate)}/hr`:''],['Materials',q.materials,''],['Flights',q.flights,''],['Hotels',q.hotels,''],['Rental Vehicle',q.rental,''],['LOA',q.loa,''],['Fuel',q.fuel,''],['Other / Misc',q.other,'']].filter(r=>+r[1]);
+        return `<table style="${T};margin-bottom:0;border-collapse:collapse">
         <thead>
           <tr style="background:#E8E6E0">
-            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4">Description</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4;width:60px">Qty</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4;width:60px">Unit</th>
-            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4;width:100px">Unit Price</th>
-            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4;width:100px">Total</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4">Cost Component</th>
+            <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4">Detail</th>
+            <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:#1A2332;text-transform:uppercase;letter-spacing:.4px;border-bottom:2px solid #D0CCC4;width:120px">Amount</th>
           </tr>
         </thead>
         <tbody>
-          ${q.items.map((it,i)=>`<tr style="background:${i%2===0?'#FFFFFF':'#F5F3EE'}">
-            <td style="padding:8px 10px;font-size:12.5px;border-bottom:1px solid #E8E6E0">${it.desc||''}</td>
-            <td style="padding:8px 10px;text-align:center;font-size:12.5px;border-bottom:1px solid #E8E6E0">${it.qty||''}</td>
-            <td style="padding:8px 10px;text-align:center;font-size:12.5px;border-bottom:1px solid #E8E6E0">${it.unit||''}</td>
-            <td style="padding:8px 10px;text-align:right;font-size:12.5px;border-bottom:1px solid #E8E6E0">${fmt$(it.price)}</td>
-            <td style="padding:8px 10px;text-align:right;font-size:12.5px;border-bottom:1px solid #E8E6E0">${fmt$((+it.qty||0)*(+it.price||0))}</td>
-          </tr>`).join('')}
-          <tr style="background:#F5F3EE"><td colspan="3" style="border-top:2px solid #D0CCC4"></td>
+          ${rows.length?rows.map((r,i)=>`<tr style="background:${i%2===0?'#FFFFFF':'#F5F3EE'}">
+            <td style="padding:8px 10px;font-size:12.5px;border-bottom:1px solid #E8E6E0">${r[0]}</td>
+            <td style="padding:8px 10px;font-size:12px;color:#555;border-bottom:1px solid #E8E6E0">${r[2]}</td>
+            <td style="padding:8px 10px;text-align:right;font-size:12.5px;border-bottom:1px solid #E8E6E0">${fmt$(r[1])}</td>
+          </tr>`).join(''):`<tr><td colspan="3" style="padding:10px;font-size:12.5px;color:#777">Quote total only — see linked document for full breakdown.</td></tr>`}
+          <tr style="background:#F5F3EE"><td></td>
             <td style="padding:7px 10px;text-align:right;font-weight:600;font-size:12.5px;border-top:2px solid #D0CCC4">Subtotal</td>
             <td style="padding:7px 10px;text-align:right;font-size:12.5px;border-top:2px solid #D0CCC4">$&nbsp;${sub.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td>
           </tr>
-          <tr style="background:#F5F3EE"><td colspan="3"></td>
+          <tr style="background:#F5F3EE"><td></td>
             <td style="padding:7px 10px;text-align:right;font-weight:600;font-size:12.5px">Tax</td>
             <td style="padding:7px 10px;text-align:right;font-size:12.5px">$&nbsp;${tax.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td>
           </tr>
           <tr style="background:#C0392B;color:white">
-            <td colspan="3" style="padding:9px 10px"></td>
+            <td></td>
             <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:13px">TOTAL (USD)</td>
             <td style="padding:9px 10px;text-align:right;font-weight:700;font-size:13px">$&nbsp;${total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</td>
           </tr>
         </tbody>
-      </table>
-
-      <!-- INCLUSIONS / EXCLUSIONS -->
-      ${(q.inclusions&&q.inclusions.length)||(q.exclusions&&q.exclusions.length)?`
-      <table style="${T};margin-top:16px;${S}">
-        <tr>
-          <td style="background:#1A2332;color:white;font-weight:700;font-size:11px;letter-spacing:.5px;padding:7px 10px;width:50%">INCLUSIONS</td>
-          <td style="background:#1A2332;color:white;font-weight:700;font-size:11px;letter-spacing:.5px;padding:7px 10px;width:50%">EXCLUSIONS</td>
-        </tr>
-        <tr>
-          <td style="padding:10px;vertical-align:top;background:#F5F3EE">
-            <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.8;color:#1A2332">
-              ${(q.inclusions||[]).map(x=>`<li>${x}</li>`).join('')}
-            </ul>
-          </td>
-          <td style="padding:10px;vertical-align:top;border-left:1px solid #D0CCC4;background:#F5F3EE">
-            <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.8;color:#1A2332">
-              ${(q.exclusions||[]).map(x=>`<li>${x}</li>`).join('')}
-            </ul>
-          </td>
-        </tr>
-      </table>`:''}
+      </table>`;})()}
 
       <!-- NOTES -->
       ${q.notes?`<table style="${T};margin-top:12px;${S}">
@@ -1764,23 +1758,6 @@ function _applyWorkbook(wb){
     if(qtRows.length){
       DB.quotes=qtRows.map(r=>{
         const exist=DB.quotes.find(q=>q.id===String(r['Quote #']));
-        let items=exist?.items||[];
-        if(!items.length){
-          const cats=[
-            ['Labour',+(r['Labour ($)']||0),+(r['Labour Hrs']||1),'HR',+(r['Labour Rate ($/hr)']||0)],
-            ['Materials',+(r['Materials ($)']||0),1,'LS',0],
-            ['Flights',+(r['Flights ($)']||0),1,'LS',0],
-            ['Hotels/Accommodation',+(r['Hotels ($)']||0),1,'LS',0],
-            ['Rental Vehicle',+(r['Rental Vehicle ($)']||0),1,'LS',0],
-            ['Living Out Allowance (LOA)',+(r['LOA ($)']||0),1,'LS',0],
-            ['Fuel',+(r['Fuel ($)']||0),1,'LS',0],
-            ['Other/Miscellaneous',+(r['Other/Misc ($)']||0),1,'LS',0],
-          ];
-          items=cats.filter(c=>c[1]>0).map(c=>({
-            desc:c[0], qty:c[2], unit:c[3], price:c[0]==='Labour'&&c[4]>0?c[4]:c[1]
-          }));
-          if(!items.length) items=[{desc:r['Project / Scope']||'Services',qty:1,unit:'LS',price:+(r['Quote Total ($)']||0)}];
-        }
         return {
           id:String(r['Quote #']),
           custId:String(r['Customer ID']||''),
@@ -1789,15 +1766,22 @@ function _applyWorkbook(wb){
           project:r['Project / Scope']||'',
           site:r['Site Location']||'',
           category:r['Category']||'',
-          status:r['Status']||'Draft',
+          status:r['Status']||'Open',
           leadSource:r['Lead Source']||'',
-          preparedBy:r['Prepared By']||exist?.preparedBy||'',
-          preparedByEmail:r['Prepared By Email']||exist?.preparedByEmail||'',
           currency:r['Currency']||exist?.currency||'USD',
+          labourHrs:+(r['Labour Hrs']||0),
+          labourRate:+(r['Labour Rate ($/hr)']||0),
+          labour:+(r['Labour ($)']||0),
+          materials:+(r['Materials ($)']||0),
+          flights:+(r['Flights ($)']||0),
+          hotels:+(r['Hotels ($)']||0),
+          rental:+(r['Rental Vehicle ($)']||0),
+          loa:+(r['LOA ($)']||0),
+          fuel:+(r['Fuel ($)']||0),
+          other:+(r['Other/Misc ($)']||0),
+          quoteTotal:+(r['Quote Total ($)']||0),
           notes:exist?.notes||'',
-          items,
-          inclusions:exist?.inclusions||[],
-          exclusions:exist?.exclusions||[],
+          docUrl:exist?.docUrl||'',
         };
       });
     }
@@ -1929,18 +1913,14 @@ function _buildWorkbook(){
   const qHdr=['Quote #','Date','Valid Until','Customer ID','Customer Name','Currency','Project / Scope','Site Location','Category','Labour Hrs','Labour Rate ($/hr)','Labour ($)','Materials ($)','Flights ($)','Hotels ($)','Rental Vehicle ($)','LOA ($)','Fuel ($)','Other/Misc ($)','Quote Total ($)','Status','Lead Source','Notes'];
   const qData=DB.quotes.map(q=>{
     const cu=DB.customers.find(c=>c.id===q.custId)||{};
-    const total=lineTotal(q.items);
-    // Split items back into categories where possible
-    const get=desc=>{ const i=q.items.find(x=>x.desc===desc); return i?(+(i.qty||1))*(+(i.price||0)):0; };
-    const labour=get('Labour'); const lItem=q.items.find(x=>x.desc==='Labour');
     return [
       q.id,_toXlSerial(q.date),_toXlSerial(q.validUntil),
-      q.custId,cu.company||'',cu.currency||'USD',
+      q.custId,cu.company||'',q.currency||cu.currency||'USD',
       q.project,q.site,q.category,
-      lItem?.qty||'',lItem?.price||'',labour,
-      get('Materials'),get('Flights'),get('Hotels/Accommodation'),
-      get('Rental Vehicle'),get('Living Out Allowance (LOA)'),get('Fuel'),get('Other/Miscellaneous'),
-      total,q.status,q.leadSource||'',q.notes
+      q.labourHrs||'',q.labourRate||'',q.labour||'',
+      q.materials||'',q.flights||'',q.hotels||'',
+      q.rental||'',q.loa||'',q.fuel||'',q.other||'',
+      quoteVal(q),q.status,q.leadSource||'',q.notes
     ];
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([qHdr,...qData]),'📋 Quotes');
