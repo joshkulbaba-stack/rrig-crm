@@ -1977,8 +1977,8 @@ async function _getMsal(){
 
 function msSignIn(){
   if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
-  if(!_msalApp){ alert('App still loading — please try again in a moment.'); return; }
   try {
+    if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
     _msalApp.loginRedirect({ scopes: _SCOPES });
   } catch(e) {
     alert('Sign-in error: ' + (e.message || String(e)));
