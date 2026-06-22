@@ -532,8 +532,8 @@ function render(){
 
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard(c,a){
-  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-outline btn-sm" onclick="restoreLocalBackup()" title="Restore the auto-backup taken before the last sync overwrite">↩ Restore Backup</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
-  setTimeout(()=>{ _updateAuthUI(); _updateSyncToggleUI(); }, 100);
+  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="autoimport-btn" class="btn btn-outline btn-sm" onclick="toggleAutoImport()" title="Automatically import the SharePoint Excel every time the app loads (spreadsheet = source of truth)">⏸ Auto-Import: Off</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-outline btn-sm" onclick="restoreLocalBackup()" title="Restore the auto-backup taken before the last sync overwrite">↩ Restore Backup</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
+  setTimeout(()=>{ _updateAuthUI(); _updateSyncToggleUI(); _updateAutoImportUI(); }, 100);
   const quotedVal = DB.quotes.reduce((s,q)=>s+toUSD(quoteVal(q),q.currency),0);
   const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+toUSD(+j.contractValue||0,j.currency),0);
   const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=invSub(i); return s+toUSD(sub+(sub*(+i.taxRate||0)/100),i.currency); },0);
@@ -1984,6 +1984,8 @@ async function msSignIn(){
       _msalAccount = resp.account;
       _updateAuthUI();
       _updateSyncToggleUI();
+      _updateAutoImportUI();
+      _autoImportExcel();                 // pull Excel right after sign-in
       if(_liveSync) syncPull(true);
     }
   } catch(e) {
@@ -2090,6 +2092,54 @@ async function importFromSharePoint(){
     console.error(e);
     alert('Import failed: ' + e.message);
   }
+}
+
+// Silent auto-import: pulls the SharePoint Excel and reconciles it on load. No popups.
+let _autoImporting = false;
+async function _autoImportExcel(){
+  if(_autoImporting) return;
+  if(localStorage.getItem('rrig-autoimport')==='0') return;  // disabled by user
+  if(!_msalAccount) return;                                   // only when signed in
+  if(typeof XLSX==='undefined') return;
+  _autoImporting = true;
+  const st = document.getElementById('sync-status');
+  if(st){ st.textContent='⤵ Importing from Excel…'; st.style.color='#C08A2B'; }
+  try {
+    const token = await _getToken();
+    if(!token) return;
+    if(!await _resolveExcelIds(token)) return;
+    const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelItemId + '/content';
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if(!res.ok){ if(st){ st.textContent='⚠ Excel import failed ('+res.status+')'; st.style.color='#C0392B'; } return; }
+    const buf = await res.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: false });
+    _applyWorkbook(wb, true);  // silent
+    const stamp = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    const msg = '✓ Excel imported · '+stamp;
+    localStorage.setItem('rrig-last-sync-msg', msg);
+    const st2 = document.getElementById('sync-status');
+    if(st2){ st2.textContent=msg; st2.style.color='#1A7F37'; }
+  } catch(e) {
+    console.error('Auto-import', e);
+    const st3 = document.getElementById('sync-status');
+    if(st3){ st3.textContent='⚠ Excel import failed'; st3.style.color='#C0392B'; }
+  } finally {
+    _autoImporting = false;
+  }
+}
+
+function toggleAutoImport(){
+  const on = localStorage.getItem('rrig-autoimport')!=='0';
+  localStorage.setItem('rrig-autoimport', on ? '0' : '1');
+  _updateAutoImportUI();
+  if(!on && _msalAccount) _autoImportExcel();  // just turned ON — import now
+}
+function _updateAutoImportUI(){
+  const btn = document.getElementById('autoimport-btn');
+  if(!btn) return;
+  const on = localStorage.getItem('rrig-autoimport')!=='0';
+  btn.textContent = on ? '🔄 Auto-Import: On' : '⏸ Auto-Import: Off';
+  btn.className = 'btn btn-sm ' + (on ? 'btn-gold' : 'btn-outline');
 }
 
 async function exportToSharePoint(){
@@ -2295,7 +2345,7 @@ function _readSheet(wb, sheetName, idCol){
     .map(r=>{ const o={}; hdrs.forEach((h,i)=>{ if(h) o[h]=r[i]??''; }); return o; });
 }
 
-function _applyWorkbook(wb){
+function _applyWorkbook(wb, silent){
     // Safety: snapshot current data before an import overwrites it
     try{ localStorage.setItem('rrig-crm-backup', localStorage.getItem('rrig-crm-v1')||'');
          localStorage.setItem('rrig-crm-backup-at', new Date().toISOString()); }catch(e){}
@@ -2467,7 +2517,7 @@ function _applyWorkbook(wb){
     }
 
     saveDB(); render();
-    alert(`✅ Imported from Excel:\n• ${DB.customers.length} customers\n• ${DB.contacts.length} contacts\n• ${DB.vendors.length} vendors\n• ${DB.quotes.length} quotes\n• ${DB.jobs.length} jobs\n• ${DB.invoices.length} invoices\n• ${DB.pos.length} POs`);
+    if(!silent) alert(`✅ Imported from Excel:\n• ${DB.customers.length} customers\n• ${DB.contacts.length} contacts\n• ${DB.vendors.length} vendors\n• ${DB.quotes.length} quotes\n• ${DB.jobs.length} jobs\n• ${DB.invoices.length} invoices\n• ${DB.pos.length} POs`);
 }
 
 function importFromExcel(){
@@ -2975,6 +3025,8 @@ if(typeof msal !== 'undefined'){
   if(accts.length>0) _msalAccount = accts[0];
   _updateAuthUI();
   _updateSyncToggleUI();
+  _updateAutoImportUI();
+  if(_msalAccount) _autoImportExcel();           // Excel = source of truth: pull on load
   if(_liveSync && _msalAccount) syncPull(true);
 })();
 </script>
