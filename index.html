@@ -31,6 +31,9 @@ nav a .ico{width:16px;text-align:center;font-style:normal;flex-shrink:0}
 .card{background:white;border-radius:8px;border:1px solid #e2e8f0;padding:20px;margin-bottom:16px}
 .card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
 .card-title{font-size:12px;font-weight:600;color:#6b7a8d;text-transform:uppercase;letter-spacing:.5px}
+.search-box{padding:6px 10px;border:1px solid #d1d9e0;border-radius:6px;font-size:13px;font-family:inherit;width:220px;max-width:45vw}
+.search-box:focus{outline:none;border-color:#1A2332;box-shadow:0 0 0 3px rgba(30,58,95,.08)}
+.b-overdue{background:#fdecea;color:#C0392B}
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead th{background:#f8fafc;color:#6b7a8d;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:9px 12px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap}
@@ -406,7 +409,8 @@ const SEED = {
     web:"www.rrindgroup.com",
     taxPresets:["6.25% — TX Sales Tax","8.25% — TX (Houston)","7.25% — CA","6.00% — FL","13.00% — HST (ON)","12.00% — GST+PST (BC)","0% — Exempt"],
     quoteCategories:["Maintenance","Installation","Inspection","Switchgear","Controls","Other"],
-    poCategories:["Materials","Subcontract","Equipment","Tools","Other"]
+    poCategories:["Materials","Subcontract","Equipment","Tools","Other"],
+    fxCadToUsd:0.73
   }
 };
 
@@ -432,9 +436,24 @@ const fmtDate = d => { if(!d) return '—'; const p=String(d).split('-'); if(p.l
 const today = () => new Date().toISOString().split('T')[0];
 const addDays = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt.toISOString().split('T')[0]; };
 function custName(id){ const c=DB.customers.find(x=>x.id===id); return c?c.company:id; }
+// Generic table search: filters rows of the table within the same .card by text
+function filterRows(inp){
+  const q=(inp.value||'').toLowerCase();
+  const card=inp.closest('.card'); if(!card) return;
+  const body=card.querySelector('tbody'); if(!body) return;
+  body.querySelectorAll('tr').forEach(tr=>{ tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+}
+const _searchBox = ph => `<input class="search-box" oninput="filterRows(this)" placeholder="${ph||'Search…'}">`;
+// Days until/since a due date (negative = overdue by N days)
+function daysUntil(d){ if(!d) return null; const due=new Date(d); if(isNaN(due)) return null; const t=new Date(); t.setHours(0,0,0,0); due.setHours(0,0,0,0); return Math.round((due-t)/86400000); }
+function isOverdue(inv){ if(inv.status==='Paid') return false; const du=daysUntil(inv.dueDate); return du!==null && du<0; }
+
 function lineTotal(items){ return (items||[]).reduce((s,i)=>(s+(+i.qty||0)*(+i.price||0)),0); }
 function lineSubtotal(items){ return lineTotal(items); }
 // Stored-total helpers (new flat model with legacy line-item fallback)
+// Convert a native-currency amount to USD using the Settings FX rate
+function fxRate(){ return (DB.settings && +DB.settings.fxCadToUsd) || 0.73; }
+function toUSD(amount, currency){ amount=+amount||0; return (currency==='CAD') ? amount*fxRate() : amount; }
 function quoteVal(q){ return q.quoteTotal!=null&&q.quoteTotal!=='' ? +q.quoteTotal : lineTotal(q.items); }
 function invSub(i){ return i.amount!=null&&i.amount!=='' ? +i.amount : lineTotal(i.items); }
 function poSub(p){ return p.amount!=null&&p.amount!=='' ? +p.amount : lineTotal(p.items); }
@@ -480,15 +499,22 @@ function render(){
 function renderDashboard(c,a){
   a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-outline btn-sm" onclick="restoreLocalBackup()" title="Restore the auto-backup taken before the last sync overwrite">↩ Restore Backup</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
   setTimeout(()=>{ _updateAuthUI(); _updateSyncToggleUI(); }, 100);
-  const quotedVal = DB.quotes.reduce((s,q)=>s+quoteVal(q),0);
-  const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+(+j.contractValue||0),0);
-  const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=invSub(i); return s+sub+(sub*(+i.taxRate||0)/100); },0);
-  const outstandingAR = DB.invoices.filter(i=>i.status!=='Paid').reduce((s,i)=>{ const sub=invSub(i); return s+sub+(sub*(+i.taxRate||0)/100); },0);
-  const poSpend = DB.pos.reduce((s,p)=>{ const sub=poSub(p); return s+sub+(sub*(+p.taxRate||0)/100)+(+p.ccFees||0); },0);
+  const quotedVal = DB.quotes.reduce((s,q)=>s+toUSD(quoteVal(q),q.currency),0);
+  const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+toUSD(+j.contractValue||0,j.currency),0);
+  const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=invSub(i); return s+toUSD(sub+(sub*(+i.taxRate||0)/100),i.currency); },0);
+  const outstandingAR = DB.invoices.filter(i=>i.status!=='Paid').reduce((s,i)=>{ const sub=invSub(i); return s+toUSD(sub+(sub*(+i.taxRate||0)/100),i.currency); },0);
+  const poSpend = DB.pos.reduce((s,p)=>{ const sub=poSub(p); return s+toUSD(sub+(sub*(+p.taxRate||0)/100)+(+p.ccFees||0),p.currency); },0);
   const avgMargin = DB.jobs.length ? (DB.jobs.reduce((s,j)=>{
     const rev=+j.contractValue||0; const cost=(+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0);
     return s+(rev>0?(rev-cost)/rev:0);
   },0)/DB.jobs.length*100).toFixed(1)+'%' : '—';
+  // A/R aging buckets (unpaid invoices, by days past due)
+  const aging={current:0,d30:0,d60:0,d90:0};
+  DB.invoices.filter(i=>i.status!=='Paid').forEach(i=>{
+    const sub=invSub(i); const tot=toUSD(sub+(sub*(+i.taxRate||0)/100),i.currency); const du=daysUntil(i.dueDate);
+    const od=du===null?0:-du; // days past due
+    if(od<=0) aging.current+=tot; else if(od<=30) aging.d30+=tot; else if(od<=60) aging.d60+=tot; else aging.d90+=tot;
+  });
 
   c.innerHTML=`
   <div class="kpi-grid">
@@ -499,6 +525,31 @@ function renderDashboard(c,a){
     <div class="kpi"><div class="lbl">PO Spend (YTD)</div><div class="val">${fmt$(poSpend)}</div><div class="sub">${DB.pos.length} purchase order(s)</div></div>
     <div class="kpi"><div class="lbl">Avg Job Margin</div><div class="val">${avgMargin}</div><div class="sub">Gross margin</div></div>
   </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-hdr"><span class="card-title">Accounts Receivable Aging</span><button class="btn btn-outline btn-sm" onclick="nav('invoices')">View Invoices</button></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div style="text-align:center;padding:10px;border-radius:8px;background:#f1f5f9"><div style="font-size:11px;color:#6b7a8d;text-transform:uppercase;letter-spacing:.4px">Current</div><div style="font-size:18px;font-weight:700;color:#1A2332">${fmt$(aging.current)}</div></div>
+      <div style="text-align:center;padding:10px;border-radius:8px;background:#fff7ed"><div style="font-size:11px;color:#9a6b2b;text-transform:uppercase;letter-spacing:.4px">1–30 Days</div><div style="font-size:18px;font-weight:700;color:#9a6b2b">${fmt$(aging.d30)}</div></div>
+      <div style="text-align:center;padding:10px;border-radius:8px;background:#fdecea"><div style="font-size:11px;color:#C0392B;text-transform:uppercase;letter-spacing:.4px">31–60 Days</div><div style="font-size:18px;font-weight:700;color:#C0392B">${fmt$(aging.d60)}</div></div>
+      <div style="text-align:center;padding:10px;border-radius:8px;background:#fbdcd8"><div style="font-size:11px;color:#8a1c12;text-transform:uppercase;letter-spacing:.4px">60+ Days</div><div style="font-size:18px;font-weight:700;color:#8a1c12">${fmt$(aging.d90)}</div></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-hdr"><span class="card-title">Quote Pipeline by Status (USD)</span><button class="btn btn-outline btn-sm" onclick="nav('quotes')">View Quotes</button></div>
+    ${(()=>{
+      const colors={Open:'#6b7a8d',Sent:'#1e40af',Won:'#1A7F37',Awarded:'#1A7F37',Lost:'#C0392B',Cancelled:'#8a8f98',Draft:'#9aa5b1'};
+      const tally={};
+      DB.quotes.forEach(q=>{ const st=q.status||'Open'; tally[st]=(tally[st]||0)+toUSD(quoteVal(q),q.currency); });
+      const entries=Object.entries(tally).sort((a,b)=>b[1]-a[1]);
+      const max=Math.max(1,...entries.map(e=>e[1]));
+      if(!entries.length) return '<div style="color:#777;font-size:13px">No quotes yet.</div>';
+      return entries.map(([st,val])=>`<div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+        <div style="width:90px;font-size:12px;color:#1A2332;font-weight:600">${st}</div>
+        <div style="flex:1;background:#f1f5f9;border-radius:4px;overflow:hidden"><div style="width:${Math.max(2,val/max*100)}%;background:${colors[st]||'#6b7a8d'};height:18px;border-radius:4px"></div></div>
+        <div style="width:100px;text-align:right;font-size:12.5px;font-weight:600">${fmt$(val)}</div>
+      </div>`).join('');
+    })()}
+  </div>
   <div class="two-col-layout">
     <div class="card">
       <div class="card-hdr"><span class="card-title">Recent Invoices</span><button class="btn btn-outline btn-sm" onclick="nav('invoices')">View All</button></div>
@@ -506,7 +557,8 @@ function renderDashboard(c,a){
         <thead><tr><th>Invoice #</th><th>Client</th><th>Amount</th><th>Status</th></tr></thead>
         <tbody>${DB.invoices.slice(-5).reverse().map(i=>{
           const sub=invSub(i); const total=sub+(sub*(+i.taxRate||0)/100);
-          return `<tr onclick="nav('invoices')"><td>${i.id}</td><td>${custName(i.custId)}</td><td>${fmt$(total)}</td><td><span class="badge ${badgeClass(i.status)}">${i.status}</span></td></tr>`;
+          const od=isOverdue(i); const badge=od?`<span class="badge b-overdue">Overdue</span>`:`<span class="badge ${badgeClass(i.status)}">${i.status}</span>`;
+          return `<tr onclick="nav('invoices')"><td>${i.id}</td><td>${custName(i.custId)}</td><td>${fmt$(total)}</td><td>${badge}</td></tr>`;
         }).join('')}</tbody>
       </table></div>
     </div>
@@ -531,7 +583,7 @@ function renderDashboard(c,a){
 function renderClients(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editClient()">+ New Client</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">All Clients (${DB.customers.length})</span></div>
+    <div class="card-hdr"><span class="card-title">All Clients (${DB.customers.length})</span>${_searchBox('Search clients…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>ID</th><th>Company</th><th>Type</th><th>Primary Contact</th><th>Phone</th><th>Email</th><th>Terms</th><th>Tax</th><th></th></tr></thead>
       <tbody>${DB.customers.map(cu=>`<tr>
@@ -591,7 +643,7 @@ function deleteClient(id){
 function renderContacts(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editContact()">+ New Contact</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">All Contacts (${DB.contacts.length})</span></div>
+    <div class="card-hdr"><span class="card-title">All Contacts (${DB.contacts.length})</span>${_searchBox('Search contacts…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Company</th><th>Name</th><th>Title</th><th>Phone</th><th>Email</th><th>Location</th><th></th></tr></thead>
       <tbody>${DB.contacts.map(co=>`<tr>
@@ -642,15 +694,16 @@ function deleteContact(id){ const o=DB.contacts.find(x=>x.id===id); if(!confirm(
 function renderQuotes(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editQuote()">+ New Quote</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">All Quotes (${DB.quotes.length})</span></div>
+    <div class="card-hdr"><span class="card-title">All Quotes (${DB.quotes.length})</span>${_searchBox('Search quotes…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Quote #</th><th>Date</th><th>Client</th><th>Project</th><th>Site</th><th>Value</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.quotes.map(q=>`<tr>
         <td><strong>${q.id}</strong></td><td>${fmtDate(q.date)}</td><td>${custName(q.custId)}</td>
-        <td>${q.project}</td><td>${q.site||'—'}</td><td>${fmt$(quoteVal(q))}</td>
+        <td>${q.project}</td><td>${q.site||'—'}</td><td>${fmt$(quoteVal(q))}${q.currency==='CAD'?' <span style="font-size:10px;color:#888">CAD</span>':''}</td>
         <td><span class="badge ${badgeClass(q.status)}">${q.status}</span></td>
         <td style="white-space:nowrap">
           ${_docBtn(q.docUrl)}
+          <button class="btn btn-outline btn-xs" onclick="convertQuoteToJob('${q.id}')" title="Create a job from this quote">→ Job</button>
           <button class="btn btn-outline btn-xs" onclick="editQuote('${q.id}')">Edit</button>
           <button class="btn btn-danger btn-xs" onclick="deleteQuote('${q.id}')">Del</button>
         </td>
@@ -756,11 +809,23 @@ function saveQuote(id){
 
 function deleteQuote(id){ if(!confirm('Delete quote "'+id+'"?\n\nThis cannot be undone.')) return; DB.quotes=DB.quotes.filter(x=>x.id!==id); saveDB(); render(); }
 
+// Workflow: create a new Job pre-filled from a Quote
+function convertQuoteToJob(qid){
+  const q=DB.quotes.find(x=>x.id===qid); if(!q) return;
+  if(DB.jobs.some(j=>j.quoteId===qid) && !confirm('A job already references this quote. Create another anyway?')) return;
+  const prefill={ id:'', quoteId:q.id, custId:q.custId, currency:q.currency||'USD',
+    desc:q.project||'', site:q.site||'', contractValue:quoteVal(q),
+    startDate:today(), endDate:'', pm:'T. Snodgrass', status:'Active',
+    budgetLabour:+q.labour||0, budgetMaterials:+q.materials||0, budgetSub:0,
+    actualLabour:0, actualMaterials:0, actualSub:0, actualOther:0, notes:'' };
+  nav('jobs'); editJob(null, prefill);
+}
+
 // ─── JOBS ───────────────────────────────────────────────────────────────────
 function renderJobs(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editJob()">+ New Job</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">All Jobs (${DB.jobs.length})</span></div>
+    <div class="card-hdr"><span class="card-title">All Jobs (${DB.jobs.length})</span>${_searchBox('Search jobs…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Job #</th><th>Quote #</th><th>Client</th><th>Description</th><th>Contract Value</th><th>Gross Margin</th><th>PM</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.jobs.map(j=>{
@@ -771,6 +836,7 @@ function renderJobs(c,a){
           <td>${j.desc}</td><td>${fmt$(j.contractValue)}</td><td>${margin}</td><td>${j.pm||'—'}</td>
           <td><span class="badge ${badgeClass(j.status)}">${j.status}</span></td>
           <td style="white-space:nowrap">
+            <button class="btn btn-outline btn-xs" onclick="createInvoiceFromJob('${j.id}')" title="Create an invoice from this job">→ Invoice</button>
             <button class="btn btn-outline btn-xs" onclick="editJob('${j.id}')">Edit</button>
             <button class="btn btn-danger btn-xs" onclick="deleteJob('${j.id}')">Del</button>
           </td>
@@ -780,13 +846,13 @@ function renderJobs(c,a){
   </div>`;
 }
 
-function editJob(id){
-  const j = id ? DB.jobs.find(x=>x.id===id) : {
+function editJob(id, prefill){
+  const j = id ? DB.jobs.find(x=>x.id===id) : (prefill || {
     id:'',quoteId:'',custId:'',currency:'USD',desc:'',site:'',contractValue:0,
     startDate:today(),endDate:'',pm:'T. Snodgrass',status:'Active',
     budgetLabour:0,budgetMaterials:0,budgetSub:0,
     actualLabour:0,actualMaterials:0,actualSub:0,actualOther:0,notes:''
-  };
+  });
   document.getElementById('modal-title').textContent = id?'Edit Job':'New Job';
   document.getElementById('modal').className='modal modal-lg';
   document.getElementById('modal-body').innerHTML=`
@@ -846,20 +912,35 @@ function saveJob(id){
 
 function deleteJob(id){ if(!confirm('Delete job "'+id+'"?\n\nThis cannot be undone.')) return; DB.jobs=DB.jobs.filter(x=>x.id!==id); saveDB(); render(); }
 
+// Workflow: create a new Invoice pre-filled from a Job
+function createInvoiceFromJob(jid){
+  const j=DB.jobs.find(x=>x.id===jid); if(!j) return;
+  const cu=DB.customers.find(c=>c.id===j.custId)||{};
+  const prefill={ id:'', jobId:j.id, custId:j.custId, currency:j.currency||'USD',
+    date:today(), dueDate:addDays(today(),30), terms:cu.terms||'Net 30', poNum:'',
+    amount:+j.contractValue||0, taxRate:cu.taxRate||8.25, status:'Unpaid', payMethod:'ACH', datePaid:'',
+    notes:'Thank you for your business. Please contact us with any questions regarding this invoice.' };
+  nav('invoices'); editInvoice(null, prefill);
+}
+
 // ─── INVOICES ───────────────────────────────────────────────────────────────
 function renderInvoices(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editInvoice()">+ New Invoice</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">All Invoices (${DB.invoices.length})</span></div>
+    <div class="card-hdr"><span class="card-title">All Invoices (${DB.invoices.length})</span>${_searchBox('Search invoices…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Invoice #</th><th>Job #</th><th>Client</th><th>Date</th><th>Due</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.invoices.map(i=>{
         const sub=invSub(i); const tax=sub*(+i.taxRate||0)/100; const total=sub+tax;
+        const od=isOverdue(i); const du=daysUntil(i.dueDate);
+        const statusCell = od
+          ? `<span class="badge b-overdue">Overdue ${Math.abs(du)}d</span>`
+          : `<span class="badge ${badgeClass(i.status)}">${i.status}</span>`;
         return `<tr>
           <td><strong>${i.id}</strong></td><td>${i.jobId||'—'}</td><td>${custName(i.custId)}</td>
           <td>${fmtDate(i.date)}</td><td>${fmtDate(i.dueDate)}</td>
-          <td>${fmt$(sub)}</td><td>${fmt$(tax)}</td><td><strong>${fmt$(total)}</strong></td>
-          <td><span class="badge ${badgeClass(i.status)}">${i.status}</span></td>
+          <td>${fmt$(sub)}</td><td>${fmt$(tax)}</td><td><strong>${fmt$(total)}</strong>${i.currency==='CAD'?' <span style="font-size:10px;color:#888">CAD</span>':''}</td>
+          <td>${statusCell}</td>
           <td style="white-space:nowrap">
             ${_docBtn(i.docUrl)}
             <button class="btn btn-outline btn-xs" onclick="editInvoice('${i.id}')">Edit</button>
@@ -871,12 +952,12 @@ function renderInvoices(c,a){
   </div>`;
 }
 
-function editInvoice(id){
-  const inv = id ? DB.invoices.find(x=>x.id===id) : {
+function editInvoice(id, prefill){
+  const inv = id ? DB.invoices.find(x=>x.id===id) : (prefill || {
     id:'',jobId:'',custId:'',currency:'USD',date:today(),dueDate:addDays(today(),30),
     terms:'Net 30',poNum:'',amount:0,
     taxRate:8.25,status:'Unpaid',payMethod:'ACH',datePaid:'',notes:'Thank you for your business. Please contact us with any questions regarding this invoice.'
-  };
+  });
   document.getElementById('modal-title').textContent = id?'Edit Invoice':'New Invoice';
   document.getElementById('modal').className='modal modal-lg';
   document.getElementById('modal-body').innerHTML=`
@@ -895,6 +976,7 @@ function editInvoice(id){
         ${['Net 15','Net 30','Net 45','Net 60','Due on Receipt'].map(s=>`<option ${inv.terms===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
       <div class="fg"><label>Client PO #</label><input id="inv-po" value="${inv.poNum||''}"></div>
+      <div class="fg"><label>Currency</label><select id="inv-currency"><option ${inv.currency!=='CAD'?'selected':''}>USD</option><option ${inv.currency==='CAD'?'selected':''}>CAD</option></select></div>
       <div class="fg"><label>Tax Rate (%)</label><input id="inv-tax" type="number" step="0.01" value="${inv.taxRate}"></div>
       <div class="fg"><label>Status</label><select id="inv-status">
         ${['Unpaid','Paid','Overdue'].map(s=>`<option ${inv.status===s?'selected':''}>${s}</option>`).join('')}
@@ -936,7 +1018,7 @@ function recalcInvTotal(){
 
 function saveInvoice(id){
   const obj={
-    id:id||nextId('INV-2026',DB.invoices),jobId:v('inv-job'),custId:v('inv-cust'),currency:'USD',
+    id:id||nextId('INV-2026',DB.invoices),jobId:v('inv-job'),custId:v('inv-cust'),currency:v('inv-currency')||'USD',
     date:v('inv-date'),dueDate:v('inv-due'),terms:v('inv-terms'),poNum:v('inv-po'),
     amount:+v('inv-amount')||0,
     taxRate:+v('inv-tax'),status:v('inv-status'),payMethod:v('inv-method'),datePaid:v('inv-paid'),notes:v('inv-notes'),docUrl:v('inv-docurl')
@@ -952,7 +1034,7 @@ function deleteInvoice(id){ if(!confirm('Delete invoice "'+id+'"?\n\nThis cannot
 function renderPOs(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editPO()">+ New PO</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">Purchase Orders (${DB.pos.length})</span></div>
+    <div class="card-hdr"><span class="card-title">Purchase Orders (${DB.pos.length})</span>${_searchBox('Search POs…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>PO #</th><th>Job #</th><th>Vendor</th><th>Date</th><th>Required</th><th>Subtotal</th><th>Total</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.pos.map(p=>{
@@ -960,7 +1042,7 @@ function renderPOs(c,a){
         return `<tr>
           <td><strong>${p.id}</strong></td><td>${p.jobId||'—'}</td><td>${p.vendor}</td>
           <td>${fmtDate(p.date)}</td><td>${fmtDate(p.reqDate)}</td>
-          <td>${fmt$(sub)}</td><td><strong>${fmt$(total)}</strong></td>
+          <td>${fmt$(sub)}</td><td><strong>${fmt$(total)}</strong>${p.currency==='CAD'?' <span style="font-size:10px;color:#888">CAD</span>':''}</td>
           <td><span class="badge ${badgeClass(p.status)}">${p.status}</span></td>
           <td style="white-space:nowrap">
             ${_docBtn(p.docUrl)}
@@ -1012,6 +1094,7 @@ function editPO(id){
       <div class="fg"><label>Status</label><select id="po-status">
         ${['Issued','Received','Cancelled'].map(s=>`<option ${p.status===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
+      <div class="fg"><label>Currency</label><select id="po-currency"><option ${p.currency!=='CAD'?'selected':''}>USD</option><option ${p.currency==='CAD'?'selected':''}>CAD</option></select></div>
     </div>
     <div class="section-divider">Amount</div>
     <div class="form-grid-3">
@@ -1052,7 +1135,7 @@ function savePO(id){
     id:id||nextId('PO-2026',DB.pos),jobId:v('po-job'),
     vendor:v('po-vendor'),vendorContact:v('po-vc'),vendorPhone:v('po-vph'),vendorEmail:v('po-vem'),
     vendorAddr:v('po-vaddr'),vendorCity:v('po-vcity'),vendorState:v('po-vstate'),country:'USA',
-    currency:'USD',date:v('po-date'),reqDate:v('po-req'),terms:v('po-terms'),
+    currency:v('po-currency')||'USD',date:v('po-date'),reqDate:v('po-req'),terms:v('po-terms'),
     shipTo:v('po-ship'),attn:v('po-attn'),category:v('po-cat'),
     amount:+v('po-amount')||0,
     taxRate:+v('po-tax'),ccFees:+v('po-fees'),status:v('po-status'),notes:v('po-notes'),docUrl:v('po-docurl')
@@ -1175,7 +1258,7 @@ function deleteResource(id){ const o=DB.resources.find(x=>x.id===id); if(!confir
 function renderVendors(c,a){
   a.innerHTML='<button class="btn btn-primary" onclick="editVendor()">+ New Vendor</button>';
   c.innerHTML=`<div class="card">
-    <div class="card-hdr"><span class="card-title">Vendors / Suppliers (${DB.vendors.length})</span></div>
+    <div class="card-hdr"><span class="card-title">Vendors / Suppliers (${DB.vendors.length})</span>${_searchBox('Search vendors…')}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Company</th><th>Contact</th><th>Category</th><th>Phone</th><th>Email</th><th>Location</th><th></th></tr></thead>
       <tbody>${DB.vendors.map(vn=>`<tr>
@@ -1231,7 +1314,7 @@ function renderJobPL(c,a){
     const rev=+j.contractValue||0, cost=jobCost(j), gp=rev-cost, gm=rev>0?gp/rev*100:0;
     return {j,rev,cost,gp,gm};
   });
-  const tRev=rows.reduce((s,r)=>s+r.rev,0), tCost=rows.reduce((s,r)=>s+r.cost,0), tGp=tRev-tCost, tGm=tRev>0?tGp/tRev*100:0;
+  const tRev=rows.reduce((s,r)=>s+toUSD(r.rev,r.j.currency),0), tCost=rows.reduce((s,r)=>s+toUSD(r.cost,r.j.currency),0), tGp=tRev-tCost, tGm=tRev>0?tGp/tRev*100:0;
   c.innerHTML=`
     <div class="kpi-grid" style="margin-bottom:18px">
       <div class="kpi"><div class="lbl">Contract Value</div><div class="val">${fmt$(tRev)}</div><div class="sub">All jobs</div></div>
@@ -1287,6 +1370,13 @@ function renderSettings(c,a){
         <div class="fg"><label>PO / Vendor Categories</label><textarea id="set-pcat" style="min-height:120px">${(s.poCategories||[]).join('\n')}</textarea></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-title">Currency</div>
+      <div class="form-grid">
+        <div class="fg"><label>CAD → USD exchange rate</label><input id="set-fx" type="number" step="0.0001" value="${s.fxCadToUsd||0.73}"></div>
+        <div class="fg"><label>&nbsp;</label><div style="font-size:12px;color:#777;padding-top:8px">Used to roll CAD records into USD on the dashboard & Job P&L. Records keep their own currency.</div></div>
+      </div>
+    </div>
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>`;
 }
 
@@ -1295,7 +1385,8 @@ function saveSettings(){
   DB.settings={
     company:v('set-company'),addr:v('set-addr'),cityStateZip:v('set-csz'),
     phone:v('set-phone'),email:v('set-email'),web:v('set-web'),
-    taxPresets:lines('set-tax'),quoteCategories:lines('set-qcat'),poCategories:lines('set-pcat')
+    taxPresets:lines('set-tax'),quoteCategories:lines('set-qcat'),poCategories:lines('set-pcat'),
+    fxCadToUsd:+v('set-fx')||0.73
   };
   saveDB(); alert('Settings saved.'); render();
 }
@@ -1800,7 +1891,7 @@ const _MSAL_CONFIG = {
     authority: 'https://login.microsoftonline.com/5aa2904f-f849-440e-93e9-7161092637e2',
     redirectUri: 'https://joshkulbaba-stack.github.io/rrig-crm/'
   },
-  cache: { cacheLocation: 'sessionStorage' }
+  cache: { cacheLocation: 'localStorage' }
 };
 const _SCOPES = ['Files.ReadWrite', 'User.Read', 'Sites.ReadWrite.All'];
 let _msalApp = null;
@@ -1814,6 +1905,13 @@ let _liveSync = localStorage.getItem('rrig-livesync') === '1';
 let _applyingRemote = false;
 let _pushTimer = null;
 let _syncState = 'idle'; // idle | pulling | pushing | error | ok | off
+let _remoteSavedAt = null;   // _savedAt timestamp of the cloud copy we last saw
+function _deviceLabel(){
+  let d = localStorage.getItem('rrig-device');
+  if(!d){ d = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Phone' : 'Computer'; localStorage.setItem('rrig-device', d); }
+  return d;
+}
+function _fmtSyncTime(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d)) return ''; return d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
 const _EXCEL_SHARE_URL = 'https://rrindgroup.sharepoint.com/:x:/s/Corporate/IQCvEVlpR8phQoZy4bZZKUUoAT6B95pT2kz39rwcJ8DQAv0?e=TBCZNe';
 
 async function _getMsal(){
@@ -1982,9 +2080,11 @@ async function _pullDataFile(token){
 async function _pushDataFile(token){
   if(!await _resolveExcelIds(token)) return false;
   const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelParentId + ':/' + _DATA_FILE + ':/content';
-  const payload = JSON.stringify({ ...DB, _savedAt: new Date().toISOString() });
+  const stamp = new Date().toISOString();
+  const payload = JSON.stringify({ ...DB, _savedAt: stamp, _savedBy: _deviceLabel() });
   const res = await fetch(url, { method:'PUT', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' }, body: payload });
   if(!res.ok) throw new Error('push ' + res.status);
+  _remoteSavedAt = stamp;
   return true;
 }
 
@@ -2005,8 +2105,10 @@ async function syncPull(silent){
     // Safety: back up current local data before overwriting it
     try{ localStorage.setItem('rrig-crm-backup', localStorage.getItem('rrig-crm-v1')||'');
          localStorage.setItem('rrig-crm-backup-at', new Date().toISOString()); }catch(e){}
+    _remoteSavedAt = remote._savedAt || null;
+    const savedBy = remote._savedBy || '';
     _applyingRemote = true;
-    delete remote._savedAt;
+    delete remote._savedAt; delete remote._savedBy;
     DB = remote;
     if(!DB.resources) DB.resources = JSON.parse(JSON.stringify(SEED.resources));
     if(!DB.vendors)   DB.vendors   = JSON.parse(JSON.stringify(SEED.vendors));
@@ -2014,7 +2116,7 @@ async function syncPull(silent){
     localStorage.setItem('rrig-crm-v1', JSON.stringify(DB));
     _applyingRemote = false;
     render();
-    _setSyncState('ok');
+    _setSyncState('ok', '✓ Synced · '+_fmtSyncTime(_remoteSavedAt)+(savedBy?' by '+savedBy:''));
     if(!silent) alert('Pulled latest data from SharePoint.');
   } catch(e){ _applyingRemote=false; console.error(e); _setSyncState('error'); if(!silent) alert('Sync pull failed: '+e.message); }
 }
@@ -2027,8 +2129,14 @@ function syncPushSoon(){
     try {
       _setSyncState('pushing');
       const token = await _getToken(); if(!token){ _setSyncState('idle'); return; }
+      // Conflict guard: did another device write since our last pull?
+      const remote = await _pullDataFile(token);
+      if(remote && remote._savedAt && _remoteSavedAt && remote._savedAt > _remoteSavedAt && (remote._savedBy||'') !== _deviceLabel()){
+        const ok = confirm('Another device ('+(remote._savedBy||'unknown')+') saved changes at '+_fmtSyncTime(remote._savedAt)+', after you last synced.\n\nOK = overwrite with THIS device\'s version\nCancel = keep theirs (click ⤵ Pull to load them)');
+        if(!ok){ _setSyncState('error','⚠ Pull needed'); return; }
+      }
       await _pushDataFile(token);
-      _setSyncState('ok');
+      _setSyncState('ok', '✓ Synced · '+_fmtSyncTime(_remoteSavedAt)+' by '+_deviceLabel());
     } catch(e){ console.error(e); _setSyncState('error'); }
   }, 1500);
 }
