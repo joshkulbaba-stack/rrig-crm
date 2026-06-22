@@ -1972,8 +1972,8 @@ async function _getMsal(){
 
 async function msSignIn(){
   if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
-  // Clear any stale in-progress state from a previous failed attempt
-  Object.keys(sessionStorage).filter(k=>k.includes('interaction.status')||k.includes('.request.')).forEach(k=>sessionStorage.removeItem(k));
+  // Wipe all MSAL sessionStorage state to avoid interaction_in_progress errors
+  Object.keys(sessionStorage).filter(k=>k.startsWith('msal.')||k.includes('msal')).forEach(k=>sessionStorage.removeItem(k));
   try {
     if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
     const resp = await _msalApp.loginPopup({ scopes: _SCOPES });
