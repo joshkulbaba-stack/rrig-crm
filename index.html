@@ -2952,14 +2952,25 @@ function wordPO(id){
 loadDB();
 render();
 document.getElementById('sidebar-logo').src = RRIG_LOGO;
-// Initialize MSAL on load to catch redirect response from Microsoft login
-_getMsal().then(()=>{
-  const app = _msalApp; const accts = app ? app.getAllAccounts() : [];
+// Create MSAL app synchronously so Sign In is available immediately
+if(typeof msal !== 'undefined'){
+  try { _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG); } catch(e){ console.error('MSAL create',e); }
+}
+// Async: handle post-redirect response and refresh auth UI
+(async()=>{
+  try {
+    if(_msalApp){
+      if(_msalApp.initialize) await _msalApp.initialize();
+      const resp = await _msalApp.handleRedirectPromise();
+      if(resp && resp.account){ _msalAccount = resp.account; }
+    }
+  } catch(e){ console.error('MSAL redirect handle',e); }
+  const accts = _msalApp ? _msalApp.getAllAccounts() : [];
   if(accts.length>0) _msalAccount = accts[0];
   _updateAuthUI();
   _updateSyncToggleUI();
   if(_liveSync && _msalAccount) syncPull(true);
-}).catch(e=>console.error('MSAL init',e));
+})();
 </script>
 </body>
 </html>
