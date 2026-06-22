@@ -1962,14 +1962,9 @@ const _EXCEL_SHARE_URL = 'https://rrindgroup.sharepoint.com/:x:/s/Corporate/IQCv
 async function _getMsal(){
   if(!_msalApp){
     _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
-    await _msalApp.initialize();
-    // Handle redirect response on page load
     try {
       const resp = await _msalApp.handleRedirectPromise();
-      if(resp && resp.account){
-        _msalAccount = resp.account;
-        _updateAuthUI();
-      }
+      if(resp && resp.account){ _msalAccount = resp.account; _updateAuthUI(); }
     } catch(e){ console.error('Redirect handle error', e); }
   }
   return _msalApp;
@@ -1977,12 +1972,8 @@ async function _getMsal(){
 
 function msSignIn(){
   if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
-  try {
-    if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
-    _msalApp.loginRedirect({ scopes: _SCOPES });
-  } catch(e) {
-    alert('Sign-in error: ' + (e.message || String(e)));
-  }
+  if(!_msalApp){ alert('Please wait a moment and try again.'); return; }
+  _msalApp.loginRedirect({ scopes: _SCOPES }).catch(e => alert('Sign-in error: ' + (e.message || String(e))));
 }
 
 function msSignOut(){
@@ -2952,15 +2943,13 @@ function wordPO(id){
 loadDB();
 render();
 document.getElementById('sidebar-logo').src = RRIG_LOGO;
-// Create MSAL app synchronously so Sign In is available immediately
+// MSAL 2.x init: create app synchronously, handle redirect async
 if(typeof msal !== 'undefined'){
   try { _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG); } catch(e){ console.error('MSAL create',e); }
 }
-// Async: handle post-redirect response and refresh auth UI
 (async()=>{
   try {
     if(_msalApp){
-      if(_msalApp.initialize) await _msalApp.initialize();
       const resp = await _msalApp.handleRedirectPromise();
       if(resp && resp.account){ _msalAccount = resp.account; }
     }
