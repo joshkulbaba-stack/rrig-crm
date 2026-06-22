@@ -270,13 +270,17 @@ tbody tr:last-child td{border-bottom:none}
     <div class="sec">Sales</div>
     <a onclick="nav('clients')"><i class="ico">🏢</i>Clients</a>
     <a onclick="nav('contacts')"><i class="ico">👥</i>Contacts</a>
+    <a onclick="nav('vendors')"><i class="ico">🚚</i>Vendors</a>
     <a onclick="nav('quotes')"><i class="ico">📋</i>Quotes</a>
     <div class="sec">Operations</div>
     <a onclick="nav('jobs')"><i class="ico">🔨</i>Jobs</a>
     <a onclick="nav('invoices')"><i class="ico">🧾</i>Invoices</a>
     <a onclick="nav('pos')"><i class="ico">📦</i>Purchase Orders</a>
+    <a onclick="nav('jobpl')"><i class="ico">💰</i>Job P&amp;L</a>
     <div class="sec">Resources</div>
     <a onclick="nav('hsdocs')"><i class="ico">🦺</i>H&amp;S Documents</a>
+    <a onclick="nav('resources')"><i class="ico">📁</i>Resources</a>
+    <a onclick="nav('settings')"><i class="ico">⚙️</i>Settings</a>
   </nav>
   <div class="sidebar-footer">v1.0 · RRIG CRM</div>
 </div>
@@ -382,7 +386,28 @@ const SEED = {
     {id:"HS-006",name:"Short Service Worker Program",category:"Program",file:"Red River Short Service Worker Program.docx",rev:"Rev 01",date:"2026",url:""},
     {id:"HS-007",name:"Supervisor Training & Induction Program",category:"Program",file:"Red River Supervisor Training Induction Program.docx",rev:"Rev 01",date:"2026",url:""},
     {id:"HS-008",name:"Document Control Register",category:"Register",file:"Red River Document Control Register.docx",rev:"Rev 01",date:"2026",url:""}
-  ]
+  ],
+  resources:[
+    {id:"RES-001",name:"Quote Template",category:"Templates",desc:"Word template for quotations",url:""},
+    {id:"RES-002",name:"Invoice Template",category:"Templates",desc:"Word template for invoices",url:""},
+    {id:"RES-003",name:"Purchase Order Template",category:"Templates",desc:"Word template for purchase orders",url:""},
+    {id:"RES-004",name:"Company Logo (PNG)",category:"Logos & Branding",desc:"Primary logo, transparent background",url:""},
+    {id:"RES-005",name:"Letterhead",category:"Corporate Files",desc:"Company letterhead",url:""}
+  ],
+  vendors:[
+    {id:"VEN-001",company:"Crawford Electric Supply",contact:"Mike Huitsing",title:"",phone:"219-808-4145",email:"mhuitsing@crawfordelectricsupply.com",addr:"7701 West Little York, Suite 800",city:"Houston",state:"TX",country:"USA",category:"Materials",notes:""}
+  ],
+  settings:{
+    company:"Red River Industrial Group Inc.",
+    addr:"1095 Evergreen Circle, Suite 248",
+    cityStateZip:"The Woodlands, Texas 77380",
+    phone:"281-771-3022",
+    email:"info@rrindgroup.com",
+    web:"www.rrindgroup.com",
+    taxPresets:["6.25% — TX Sales Tax","8.25% — TX (Houston)","7.25% — CA","6.00% — FL","13.00% — HST (ON)","12.00% — GST+PST (BC)","0% — Exempt"],
+    quoteCategories:["Maintenance","Installation","Inspection","Switchgear","Controls","Other"],
+    poCategories:["Materials","Subcontract","Equipment","Tools","Other"]
+  }
 };
 
 // ─── STATE ──────────────────────────────────────────────────────────────────
@@ -391,7 +416,11 @@ let currentPage = 'dashboard';
 
 function loadDB(){
   const saved = localStorage.getItem('rrig-crm-v1');
-  if(saved){ try{ DB = JSON.parse(saved); return; }catch(e){} }
+  if(saved){ try{ DB = JSON.parse(saved);
+    if(!DB.resources) DB.resources=JSON.parse(JSON.stringify(SEED.resources));
+    if(!DB.vendors) DB.vendors=JSON.parse(JSON.stringify(SEED.vendors));
+    if(!DB.settings) DB.settings=JSON.parse(JSON.stringify(SEED.settings));
+    return; }catch(e){} }
   DB = JSON.parse(JSON.stringify(SEED));
   saveDB();
 }
@@ -432,10 +461,10 @@ function nav(page){
   currentPage = page;
   closeSidebar();
   document.querySelectorAll('#sidebar nav a').forEach(a=>a.classList.remove('active'));
-  const idx = ['dashboard','clients','contacts','quotes','jobs','invoices','pos','hsdocs'];
+  const idx = ['dashboard','clients','contacts','vendors','quotes','jobs','invoices','pos','jobpl','hsdocs','resources','settings'];
   const el = document.querySelectorAll('#sidebar nav a')[idx.indexOf(page)];
   if(el) el.classList.add('active');
-  const titles = {dashboard:'Dashboard',clients:'Clients',contacts:'Contacts',quotes:'Quotes',jobs:'Jobs',invoices:'Invoices',pos:'Purchase Orders',hsdocs:'H&S Documents'};
+  const titles = {dashboard:'Dashboard',clients:'Clients',contacts:'Contacts',vendors:'Vendors',quotes:'Quotes',jobs:'Jobs',invoices:'Invoices',pos:'Purchase Orders',jobpl:'Job P&L',hsdocs:'H&S Documents',resources:'Resources',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   render();
 }
@@ -443,7 +472,7 @@ function nav(page){
 function render(){
   const c = document.getElementById('content');
   const a = document.getElementById('topbar-actions');
-  const pages = {dashboard:renderDashboard,clients:renderClients,contacts:renderContacts,quotes:renderQuotes,jobs:renderJobs,invoices:renderInvoices,pos:renderPOs,hsdocs:renderHSDocs};
+  const pages = {dashboard:renderDashboard,clients:renderClients,contacts:renderContacts,vendors:renderVendors,quotes:renderQuotes,jobs:renderJobs,invoices:renderInvoices,pos:renderPOs,jobpl:renderJobPL,hsdocs:renderHSDocs,resources:renderResources,settings:renderSettings};
   if(pages[currentPage]) pages[currentPage](c,a);
 }
 
@@ -682,7 +711,7 @@ function editQuote(id){
       <div class="fg"><label>Quote Date</label><input id="q-date" type="date" value="${q.date||''}"></div>
       <div class="fg"><label>Valid Until</label><input id="q-valid" type="date" value="${q.validUntil||''}"></div>
       <div class="fg"><label>Category</label><select id="q-cat">
-        ${['Maintenance','Installation','Inspection','Switchgear','Controls','Other'].map(s=>`<option ${q.category===s?'selected':''}>${s}</option>`).join('')}
+        ${(DB.settings.quoteCategories||['Maintenance','Installation','Inspection','Switchgear','Controls','Other']).map(s=>`<option ${q.category===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
       <div class="fg"><label>Currency</label><select id="q-currency"><option ${q.currency==='USD'?'selected':''}>USD</option><option ${q.currency==='CAD'?'selected':''}>CAD</option></select></div>
       <div class="fg"><label>Lead Source</label><input id="q-lead" value="${q.leadSource||''}"></div>
@@ -824,7 +853,7 @@ function renderInvoices(c,a){
     <div class="tbl-wrap"><table>
       <thead><tr><th>Invoice #</th><th>Job #</th><th>Client</th><th>Date</th><th>Due</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.invoices.map(i=>{
-        const sub=lineTotal(i.items); const tax=sub*(+i.taxRate||0)/100; const total=sub+tax;
+        const sub=invSub(i); const tax=sub*(+i.taxRate||0)/100; const total=sub+tax;
         return `<tr>
           <td><strong>${i.id}</strong></td><td>${i.jobId||'—'}</td><td>${custName(i.custId)}</td>
           <td>${fmtDate(i.date)}</td><td>${fmtDate(i.dueDate)}</td>
@@ -844,10 +873,9 @@ function renderInvoices(c,a){
 function editInvoice(id){
   const inv = id ? DB.invoices.find(x=>x.id===id) : {
     id:'',jobId:'',custId:'',currency:'USD',date:today(),dueDate:addDays(today(),30),
-    terms:'Net 30',poNum:'',items:[{desc:'',qty:1,unit:'EA',price:0}],
+    terms:'Net 30',poNum:'',amount:0,
     taxRate:8.25,status:'Unpaid',payMethod:'ACH',datePaid:'',notes:'Thank you for your business. Please contact us with any questions regarding this invoice.'
   };
-  editingLineItems = JSON.parse(JSON.stringify(inv.items));
   document.getElementById('modal-title').textContent = id?'Edit Invoice':'New Invoice';
   document.getElementById('modal').className='modal modal-lg';
   document.getElementById('modal-body').innerHTML=`
@@ -856,7 +884,7 @@ function editInvoice(id){
         <option value="">— Select —</option>
         ${DB.customers.map(cu=>`<option value="${cu.id}" ${inv.custId===cu.id?'selected':''}>${cu.company}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>Job # (ref)</label><select id="inv-job">
+      <div class="fg"><label>Job # (ref)</label><select id="inv-job" onchange="fillInvFromJob(this.value)">
         <option value="">— None —</option>
         ${DB.jobs.map(j=>`<option value="${j.id}" ${inv.jobId===j.id?'selected':''}>${j.id} – ${j.desc}</option>`).join('')}
       </select></div>
@@ -875,20 +903,41 @@ function editInvoice(id){
       </select></div>
       <div class="fg"><label>Date Paid</label><input id="inv-paid" type="date" value="${inv.datePaid||''}"></div>
     </div>
-    <div class="section-divider">Line Items</div>
-    <div id="li-container">${renderLineItemsEditor()}</div>
-    <button class="btn btn-outline btn-sm" style="margin-bottom:16px" onclick="addLineItem()">+ Add Line</button>
-    <div class="fg full"><label>Notes / Comments</label><textarea id="inv-notes">${inv.notes||''}</textarea></div>
-    <div class="fg full"><label>Word Document URL (SharePoint/OneDrive link)</label><input id="inv-docurl" value="${inv.docUrl||''}" placeholder="Paste SharePoint or OneDrive link here"></div>`;
+    <div class="section-divider">Amount</div>
+    <div class="form-grid">
+      <div class="fg"><label>Invoice Amount ($) — pre-tax</label><input id="inv-amount" type="number" step="0.01" value="${(inv.amount!=null&&inv.amount!=='')?inv.amount:invSub(inv)}" oninput="recalcInvTotal()"></div>
+      <div class="fg"><label>Total Due — <span id="inv-total-lbl"></span></label><input id="inv-total-show" disabled style="background:#f3f1ec"></div>
+    </div>
+    <div class="form-grid">
+      <div class="fg full"><label>Notes / Comments</label><textarea id="inv-notes">${inv.notes||''}</textarea></div>
+      <div class="fg full"><label>Word Document URL (SharePoint/OneDrive link)</label><input id="inv-docurl" value="${inv.docUrl||''}" placeholder="Paste SharePoint or OneDrive link here"></div>
+    </div>`;
   document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveInvoice('${id||''}')">Save Invoice</button>`;
+  const taxEl=document.getElementById('inv-tax'); if(taxEl) taxEl.addEventListener('input',recalcInvTotal);
+  recalcInvTotal();
   showModal();
+}
+
+function fillInvFromJob(jid){
+  if(!jid) return;
+  const j=DB.jobs.find(x=>x.id===jid); if(!j) return;
+  const cust=document.getElementById('inv-cust'); if(cust&&j.custId) cust.value=j.custId;
+  const amt=document.getElementById('inv-amount');
+  if(amt&&(!amt.value||+amt.value===0)){ amt.value=(+j.contractValue||0).toFixed(2); recalcInvTotal(); }
+}
+
+function recalcInvTotal(){
+  const amt=+v('inv-amount')||0, rate=+v('inv-tax')||0;
+  const total=amt+amt*rate/100;
+  const el=document.getElementById('inv-total-show'); if(el) el.value=fmt$(total);
+  const lbl=document.getElementById('inv-total-lbl'); if(lbl) lbl.textContent=fmt$(total);
 }
 
 function saveInvoice(id){
   const obj={
     id:id||nextId('INV-2026',DB.invoices),jobId:v('inv-job'),custId:v('inv-cust'),currency:'USD',
     date:v('inv-date'),dueDate:v('inv-due'),terms:v('inv-terms'),poNum:v('inv-po'),
-    items:JSON.parse(JSON.stringify(editingLineItems)),
+    amount:+v('inv-amount')||0,
     taxRate:+v('inv-tax'),status:v('inv-status'),payMethod:v('inv-method'),datePaid:v('inv-paid'),notes:v('inv-notes'),docUrl:v('inv-docurl')
   };
   if(id){ const i=DB.invoices.findIndex(x=>x.id===id); DB.invoices[i]=obj; }
@@ -906,7 +955,7 @@ function renderPOs(c,a){
     <div class="tbl-wrap"><table>
       <thead><tr><th>PO #</th><th>Job #</th><th>Vendor</th><th>Date</th><th>Required</th><th>Subtotal</th><th>Total</th><th>Status</th><th></th></tr></thead>
       <tbody>${DB.pos.map(p=>{
-        const sub=lineTotal(p.items); const tax=sub*(+p.taxRate||0)/100; const total=sub+tax+(+p.ccFees||0);
+        const sub=poSub(p); const tax=sub*(+p.taxRate||0)/100; const total=sub+tax+(+p.ccFees||0);
         return `<tr>
           <td><strong>${p.id}</strong></td><td>${p.jobId||'—'}</td><td>${p.vendor}</td>
           <td>${fmtDate(p.date)}</td><td>${fmtDate(p.reqDate)}</td>
@@ -927,14 +976,17 @@ function editPO(id){
   const p = id ? DB.pos.find(x=>x.id===id) : {
     id:'',jobId:'',vendor:'',vendorContact:'',vendorPhone:'',vendorEmail:'',vendorAddr:'',vendorCity:'',vendorState:'',country:'USA',
     currency:'USD',date:today(),reqDate:'',terms:'Net 60',shipTo:'',attn:'Josh Kulbaba',
-    category:'Materials',items:[{desc:'',qty:1,unit:'EA',price:0}],
+    category:'Materials',amount:0,
     taxRate:8.25,ccFees:0,status:'Issued',notes:''
   };
-  editingLineItems = JSON.parse(JSON.stringify(p.items));
   document.getElementById('modal-title').textContent = id?'Edit PO':'New Purchase Order';
   document.getElementById('modal').className='modal modal-lg';
   document.getElementById('modal-body').innerHTML=`
     <div class="form-grid">
+      <div class="fg full"><label>Pick Vendor from Directory (optional)</label><select id="po-vpick" onchange="fillVendorFromDir(this.value)">
+        <option value="">— Select a saved vendor to auto-fill —</option>
+        ${DB.vendors.map(vn=>`<option value="${vn.id}">${vn.company}${vn.contact?' · '+vn.contact:''}</option>`).join('')}
+      </select></div>
       <div class="fg"><label>Vendor / Supplier</label><input id="po-vendor" value="${p.vendor}"></div>
       <div class="fg"><label>Vendor Contact</label><input id="po-vc" value="${p.vendorContact||''}"></div>
       <div class="fg"><label>Vendor Phone</label><input id="po-vph" value="${p.vendorPhone||''}"></div>
@@ -947,7 +999,7 @@ function editPO(id){
         ${DB.jobs.map(j=>`<option value="${j.id}" ${p.jobId===j.id?'selected':''}>${j.id} – ${j.desc}</option>`).join('')}
       </select></div>
       <div class="fg"><label>Category</label><select id="po-cat">
-        ${['Materials','Subcontract','Equipment','Other'].map(s=>`<option ${p.category===s?'selected':''}>${s}</option>`).join('')}
+        ${(DB.settings.poCategories||['Materials','Subcontract','Equipment','Tools','Other']).map(s=>`<option ${p.category===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
       <div class="fg"><label>PO Date</label><input id="po-date" type="date" value="${p.date}"></div>
       <div class="fg"><label>Required By</label><input id="po-req" type="date" value="${p.reqDate||''}"></div>
@@ -960,17 +1012,38 @@ function editPO(id){
         ${['Issued','Received','Cancelled'].map(s=>`<option ${p.status===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
     </div>
-    <div class="section-divider">Line Items</div>
-    <div id="li-container">${renderLineItemsEditor()}</div>
-    <button class="btn btn-outline btn-sm" style="margin-bottom:16px" onclick="addLineItem()">+ Add Line</button>
+    <div class="section-divider">Amount</div>
+    <div class="form-grid-3">
+      <div class="fg"><label>PO Amount ($) — pre-tax</label><input id="po-amount" type="number" step="0.01" value="${(p.amount!=null&&p.amount!=='')?p.amount:poSub(p)}" oninput="recalcPOTotal()"></div>
+      <div class="fg"><label>Tax Rate (%)</label><input id="po-tax" type="number" step="0.01" value="${p.taxRate}" oninput="recalcPOTotal()"></div>
+      <div class="fg"><label>CC / Other Fees ($)</label><input id="po-fees" type="number" step="0.01" value="${p.ccFees||0}" oninput="recalcPOTotal()"></div>
+    </div>
     <div class="form-grid">
-      <div class="fg"><label>Tax Rate (%)</label><input id="po-tax" type="number" step="0.01" value="${p.taxRate}"></div>
-      <div class="fg"><label>CC / Other Fees ($)</label><input id="po-fees" type="number" step="0.01" value="${p.ccFees||0}"></div>
+      <div class="fg"><label>Total PO — <span id="po-total-lbl"></span></label><input id="po-total-show" disabled style="background:#f3f1ec"></div>
+    </div>
+    <div class="form-grid">
       <div class="fg full"><label>Notes</label><textarea id="po-notes">${p.notes||''}</textarea></div>
       <div class="fg full"><label>Word Document URL (SharePoint/OneDrive link)</label><input id="po-docurl" value="${p.docUrl||''}" placeholder="Paste SharePoint or OneDrive link here"></div>
     </div>`;
   document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="savePO('${id||''}')">Save PO</button>`;
+  recalcPOTotal();
   showModal();
+}
+
+function fillVendorFromDir(vid){
+  if(!vid) return;
+  const vn=DB.vendors.find(x=>x.id===vid); if(!vn) return;
+  const set=(idd,val)=>{ const el=document.getElementById(idd); if(el) el.value=val||''; };
+  set('po-vendor',vn.company); set('po-vc',vn.contact); set('po-vph',vn.phone); set('po-vem',vn.email);
+  set('po-vaddr',vn.addr); set('po-vcity',vn.city); set('po-vstate',vn.state);
+  const cat=document.getElementById('po-cat'); if(cat&&vn.category) cat.value=vn.category;
+}
+
+function recalcPOTotal(){
+  const amt=+v('po-amount')||0, rate=+v('po-tax')||0, fees=+v('po-fees')||0;
+  const total=amt+amt*rate/100+fees;
+  const el=document.getElementById('po-total-show'); if(el) el.value=fmt$(total);
+  const lbl=document.getElementById('po-total-lbl'); if(lbl) lbl.textContent=fmt$(total);
 }
 
 function savePO(id){
@@ -980,7 +1053,7 @@ function savePO(id){
     vendorAddr:v('po-vaddr'),vendorCity:v('po-vcity'),vendorState:v('po-vstate'),country:'USA',
     currency:'USD',date:v('po-date'),reqDate:v('po-req'),terms:v('po-terms'),
     shipTo:v('po-ship'),attn:v('po-attn'),category:v('po-cat'),
-    items:JSON.parse(JSON.stringify(editingLineItems)),
+    amount:+v('po-amount')||0,
     taxRate:+v('po-tax'),ccFees:+v('po-fees'),status:v('po-status'),notes:v('po-notes'),docUrl:v('po-docurl')
   };
   if(id){ const i=DB.pos.findIndex(x=>x.id===id); DB.pos[i]=obj; }
@@ -1042,6 +1115,189 @@ function saveHSDoc(id){
 }
 
 function deleteHSDoc(id){ if(!confirm('Delete?')) return; DB.hsdocs=DB.hsdocs.filter(x=>x.id!==id); saveDB(); render(); }
+
+// ─── RESOURCES ──────────────────────────────────────────────────────────────
+const RES_CATS=['Templates','Logos & Branding','Corporate Files','Other'];
+function _resIcon(cat){ return cat==='Templates'?'📄':cat==='Logos & Branding'?'🎨':cat==='Corporate Files'?'🏢':'📁'; }
+
+function renderResources(c,a){
+  a.innerHTML='<button class="btn btn-primary" onclick="editResource()">+ Add Resource</button>';
+  const cats=[...new Set([...RES_CATS,...DB.resources.map(d=>d.category)])].filter(cat=>DB.resources.some(d=>d.category===cat));
+  c.innerHTML=`
+    <div class="alert alert-info">Paste the SharePoint/OneDrive link for each template or corporate file. Click <strong>Open</strong> to launch it directly.</div>
+    ${cats.map(cat=>`
+    <div class="card">
+      <div class="card-title">${_resIcon(cat)} ${cat}</div>
+      <div class="hs-grid">
+        ${DB.resources.filter(d=>d.category===cat).map(d=>`
+        <div class="hs-card">
+          <div class="hs-icon">${_resIcon(cat)}</div>
+          <div class="hs-name">${d.name}</div>
+          <div class="hs-cat">${d.desc||''}</div>
+          <div class="hs-actions">
+            ${d.url?`<a href="${d.url}" target="_blank" class="btn btn-primary btn-sm">Open</a>`:`<button class="btn btn-outline btn-sm" onclick="editResource('${d.id}')">Add Link</button>`}
+            <button class="btn btn-outline btn-sm" onclick="editResource('${d.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteResource('${d.id}')">Del</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}`;
+}
+
+function editResource(id){
+  const d = id ? DB.resources.find(x=>x.id===id) : {id:'',name:'',category:'Templates',desc:'',url:''};
+  document.getElementById('modal-title').textContent = id?'Edit Resource':'Add Resource';
+  document.getElementById('modal').className='modal';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="form-grid">
+      <div class="fg full"><label>Name</label><input id="res-name" value="${d.name||''}"></div>
+      <div class="fg"><label>Category</label><select id="res-cat">
+        ${RES_CATS.map(s=>`<option ${d.category===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>Description</label><input id="res-desc" value="${d.desc||''}"></div>
+      <div class="fg full"><label>SharePoint / OneDrive URL</label><input id="res-url" value="${d.url||''}" placeholder="https://..."></div>
+    </div>`;
+  document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveResource('${id||''}')">Save</button>`;
+  showModal();
+}
+
+function saveResource(id){
+  const obj={id:id||nextId('RES',DB.resources),name:v('res-name'),category:v('res-cat'),desc:v('res-desc'),url:v('res-url')};
+  if(id){ const i=DB.resources.findIndex(x=>x.id===id); DB.resources[i]=obj; }
+  else DB.resources.push(obj);
+  saveDB(); closeModal(); render();
+}
+
+function deleteResource(id){ if(!confirm('Delete?')) return; DB.resources=DB.resources.filter(x=>x.id!==id); saveDB(); render(); }
+
+// ─── VENDORS ────────────────────────────────────────────────────────────────
+function renderVendors(c,a){
+  a.innerHTML='<button class="btn btn-primary" onclick="editVendor()">+ New Vendor</button>';
+  c.innerHTML=`<div class="card">
+    <div class="card-hdr"><span class="card-title">Vendors / Suppliers (${DB.vendors.length})</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Company</th><th>Contact</th><th>Category</th><th>Phone</th><th>Email</th><th>Location</th><th></th></tr></thead>
+      <tbody>${DB.vendors.map(vn=>`<tr>
+        <td><strong>${vn.company}</strong></td><td>${vn.contact||'—'}</td><td>${vn.category||'—'}</td>
+        <td>${vn.phone||'—'}</td><td>${vn.email||'—'}</td><td>${[vn.city,vn.state].filter(Boolean).join(', ')||'—'}</td>
+        <td style="white-space:nowrap"><button class="btn btn-outline btn-xs" onclick="editVendor('${vn.id}')">Edit</button>
+            <button class="btn btn-danger btn-xs" onclick="deleteVendor('${vn.id}')">Del</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function editVendor(id){
+  const vn = id ? DB.vendors.find(x=>x.id===id) : {id:'',company:'',contact:'',title:'',phone:'',email:'',addr:'',city:'',state:'',country:'USA',category:'Materials',notes:''};
+  document.getElementById('modal-title').textContent = id?'Edit Vendor':'New Vendor';
+  document.getElementById('modal').className='modal';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="form-grid">
+      <div class="fg full"><label>Company / Supplier Name</label><input id="vn-company" value="${vn.company||''}"></div>
+      <div class="fg"><label>Contact Name</label><input id="vn-contact" value="${vn.contact||''}"></div>
+      <div class="fg"><label>Title</label><input id="vn-title" value="${vn.title||''}"></div>
+      <div class="fg"><label>Category</label><select id="vn-cat">
+        ${(DB.settings.poCategories||['Materials','Subcontract','Equipment','Tools','Other']).map(s=>`<option ${vn.category===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>Phone</label><input id="vn-phone" value="${vn.phone||''}"></div>
+      <div class="fg"><label>Email</label><input id="vn-email" value="${vn.email||''}"></div>
+      <div class="fg full"><label>Address</label><input id="vn-addr" value="${vn.addr||''}"></div>
+      <div class="fg"><label>City</label><input id="vn-city" value="${vn.city||''}"></div>
+      <div class="fg"><label>State / Province</label><input id="vn-state" value="${vn.state||''}"></div>
+      <div class="fg"><label>Country</label><input id="vn-country" value="${vn.country||'USA'}"></div>
+      <div class="fg full"><label>Notes</label><input id="vn-notes" value="${vn.notes||''}"></div>
+    </div>`;
+  document.getElementById('modal-ftr').innerHTML=`<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveVendor('${id||''}')">Save</button>`;
+  showModal();
+}
+
+function saveVendor(id){
+  const obj={id:id||nextId('VEN',DB.vendors),company:v('vn-company'),contact:v('vn-contact'),title:v('vn-title'),
+    category:v('vn-cat'),phone:v('vn-phone'),email:v('vn-email'),addr:v('vn-addr'),city:v('vn-city'),state:v('vn-state'),country:v('vn-country'),notes:v('vn-notes')};
+  if(id){ const i=DB.vendors.findIndex(x=>x.id===id); DB.vendors[i]=obj; }
+  else DB.vendors.push(obj);
+  saveDB(); closeModal(); render();
+}
+
+function deleteVendor(id){ if(!confirm('Delete?')) return; DB.vendors=DB.vendors.filter(x=>x.id!==id); saveDB(); render(); }
+
+// ─── JOB P&L ────────────────────────────────────────────────────────────────
+function jobCost(j){ return (+j.actualLabour||0)+(+j.actualMaterials||0)+(+j.actualSub||0)+(+j.actualOther||0); }
+
+function renderJobPL(c,a){
+  a.innerHTML='';
+  const rows=DB.jobs.map(j=>{
+    const rev=+j.contractValue||0, cost=jobCost(j), gp=rev-cost, gm=rev>0?gp/rev*100:0;
+    return {j,rev,cost,gp,gm};
+  });
+  const tRev=rows.reduce((s,r)=>s+r.rev,0), tCost=rows.reduce((s,r)=>s+r.cost,0), tGp=tRev-tCost, tGm=tRev>0?tGp/tRev*100:0;
+  c.innerHTML=`
+    <div class="kpi-grid" style="margin-bottom:18px">
+      <div class="kpi"><div class="lbl">Contract Value</div><div class="val">${fmt$(tRev)}</div><div class="sub">All jobs</div></div>
+      <div class="kpi"><div class="lbl">Total Costs</div><div class="val">${fmt$(tCost)}</div><div class="sub">Actual costs</div></div>
+      <div class="kpi"><div class="lbl">Gross Profit</div><div class="val" style="color:${tGp>=0?'#1A7F37':'#C0392B'}">${fmt$(tGp)}</div><div class="sub">Revenue − costs</div></div>
+      <div class="kpi"><div class="lbl">Gross Margin</div><div class="val">${tGm.toFixed(1)}%</div><div class="sub">Blended</div></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><span class="card-title">Job Profitability (${rows.length})</span></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Job #</th><th>Client</th><th>Description</th><th>Status</th>
+          <th style="text-align:right">Contract</th><th style="text-align:right">Costs</th>
+          <th style="text-align:right">Gross Profit</th><th style="text-align:right">Margin</th></tr></thead>
+        <tbody>${rows.map(({j,rev,cost,gp,gm})=>`<tr>
+          <td><strong>${j.id}</strong></td><td>${custName(j.custId)}</td><td>${j.desc||''}</td>
+          <td><span class="badge ${badgeClass(j.status)}">${j.status}</span></td>
+          <td style="text-align:right">${fmt$(rev)}</td><td style="text-align:right">${fmt$(cost)}</td>
+          <td style="text-align:right;color:${gp>=0?'#1A7F37':'#C0392B'}">${fmt$(gp)}</td>
+          <td style="text-align:right">${gm.toFixed(1)}%</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid #D0CCC4">
+          <td colspan="4">TOTALS</td>
+          <td style="text-align:right">${fmt$(tRev)}</td><td style="text-align:right">${fmt$(tCost)}</td>
+          <td style="text-align:right;color:${tGp>=0?'#1A7F37':'#C0392B'}">${fmt$(tGp)}</td>
+          <td style="text-align:right">${tGm.toFixed(1)}%</td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+    <div class="alert alert-info" style="margin-top:14px">Costs come from each job's Actuals (Labour + Materials + Subcontract + Other). Edit a job to update them.</div>`;
+}
+
+// ─── SETTINGS ───────────────────────────────────────────────────────────────
+function renderSettings(c,a){
+  a.innerHTML='';
+  const s=DB.settings;
+  c.innerHTML=`
+    <div class="card">
+      <div class="card-title">Company Information</div>
+      <div class="form-grid">
+        <div class="fg full"><label>Company Name</label><input id="set-company" value="${s.company||''}"></div>
+        <div class="fg full"><label>Address</label><input id="set-addr" value="${s.addr||''}"></div>
+        <div class="fg"><label>City / State / Zip</label><input id="set-csz" value="${s.cityStateZip||''}"></div>
+        <div class="fg"><label>Phone</label><input id="set-phone" value="${s.phone||''}"></div>
+        <div class="fg"><label>Email</label><input id="set-email" value="${s.email||''}"></div>
+        <div class="fg"><label>Website</label><input id="set-web" value="${s.web||''}"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Dropdown Lists <span style="font-weight:400;color:#777;font-size:12px">— one entry per line</span></div>
+      <div class="form-grid">
+        <div class="fg"><label>Tax Rate Presets</label><textarea id="set-tax" style="min-height:120px">${(s.taxPresets||[]).join('\n')}</textarea></div>
+        <div class="fg"><label>Quote Categories</label><textarea id="set-qcat" style="min-height:120px">${(s.quoteCategories||[]).join('\n')}</textarea></div>
+        <div class="fg"><label>PO / Vendor Categories</label><textarea id="set-pcat" style="min-height:120px">${(s.poCategories||[]).join('\n')}</textarea></div>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>`;
+}
+
+function saveSettings(){
+  const lines=idd=>v(idd).split('\n').map(x=>x.trim()).filter(Boolean);
+  DB.settings={
+    company:v('set-company'),addr:v('set-addr'),cityStateZip:v('set-csz'),
+    phone:v('set-phone'),email:v('set-email'),web:v('set-web'),
+    taxPresets:lines('set-tax'),quoteCategories:lines('set-qcat'),poCategories:lines('set-pcat')
+  };
+  saveDB(); alert('Settings saved.'); render();
+}
 
 // ─── DOCUMENT PREVIEWS ──────────────────────────────────────────────────────
 function co(){ return `<strong>${COMPANY.name}</strong><br>${COMPANY.addr}, ${COMPANY.city}, ${COMPANY.state} ${COMPANY.zip}<br>${COMPANY.phone} | ${COMPANY.email} | ${COMPANY.website}`; }
@@ -1816,12 +2072,6 @@ function _applyWorkbook(wb){
     if(invRows.length){
       DB.invoices=invRows.map(r=>{
         const exist=DB.invoices.find(i=>i.id===String(r['Invoice #']));
-        let items=exist?.items||[];
-        if(!items.length){
-          const amt=+(r['Invoice Amount ($)']||0);
-          const job=DB.jobs.find(j=>j.id===String(r['Job #']));
-          items=[{desc:job?.desc||'Services rendered',qty:1,unit:'LS',price:amt}];
-        }
         return {
           id:String(r['Invoice #']),
           jobId:String(r['Job #']||''),
@@ -1831,12 +2081,13 @@ function _applyWorkbook(wb){
           poNum:r['Client PO #']||r['PO #']||exist?.poNum||'',
           terms:r['Payment Terms']||exist?.terms||'Net 30',
           currency:r['Currency']||exist?.currency||'USD',
+          amount:+(r['Invoice Amount ($)']||0),
           taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
           status:r['Status']||'Unpaid',
           datePaid:_xlDate(r['Date Paid']),
           payMethod:r['Payment Method']||exist?.payMethod||'',
           notes:exist?.notes||'',
-          items,
+          docUrl:exist?.docUrl||'',
         };
       });
     }
@@ -1846,11 +2097,6 @@ function _applyWorkbook(wb){
     if(poRows.length){
       DB.pos=poRows.map(r=>{
         const exist=DB.pos.find(p=>p.id===String(r['PO #']));
-        let items=exist?.items||[];
-        if(!items.length){
-          const amt=+(r['PO Amount ($)']||0);
-          items=[{desc:r['Category']||'Materials/Services',qty:1,unit:'LS',price:amt}];
-        }
         return {
           id:String(r['PO #']),
           jobId:String(r['Job #']||''),
@@ -1869,16 +2115,40 @@ function _applyWorkbook(wb){
           attn:r['Attention']||r['Attn']||exist?.attn||'',
           currency:r['Currency']||exist?.currency||'USD',
           taxRate:(function(v){v=parseFloat(String(v||0).replace('%',''));return v>1?Math.round(v*100)/100:Math.round(v*10000)/100;})(r['Tax Rate']||r['Tax Rate (%)']),
+          amount:+(r['PO Amount ($)']||0),
           ccFees:+(r['CC/Other Fees ($)']||r['CC Fees ($)']||0),
           status:r['Status']||'Open',
           notes:exist?.notes||'',
-          items,
+          docUrl:exist?.docUrl||'',
         };
       });
     }
 
+    // ── Directory → Contacts (customers) + Vendors ──
+    const dirRows=_readSheet(wb,'Directory','Company Name');
+    if(dirRows.length){
+      const isVendor=r=>String(r['C/V']||'').toLowerCase().startsWith('v');
+      const newContacts=[], newVendors=[];
+      dirRows.forEach((r,i)=>{
+        const base={company:r['Company Name']||'',name:r['Contact Name']||'',contact:r['Contact Name']||'',
+          title:r['Title']||'',phone:r['Phone']||'',email:r['Email']||'',addr:r['Address']||'',
+          city:r['City']||'',state:r['State/Prov']||'',country:r['Country']||'USA',
+          location:r['Location/Site']||'',category:r['Type']||'',notes:r['Notes']||''};
+        if(isVendor(r)){
+          newVendors.push({id:'VEN-'+String(i+1).padStart(3,'0'),company:base.company,contact:base.contact,title:base.title,
+            category:base.category,phone:base.phone,email:base.email,addr:base.addr,city:base.city,state:base.state,country:base.country,notes:base.notes});
+        }else{
+          const cust=DB.customers.find(c=>c.company===base.company);
+          newContacts.push({id:'CON-'+String(i+1).padStart(3,'0'),custId:cust?.id||'',company:base.company,name:base.name,
+            title:base.title,phone:base.phone,email:base.email,location:base.location||base.city,notes:base.notes});
+        }
+      });
+      if(newContacts.length) DB.contacts=newContacts;
+      if(newVendors.length) DB.vendors=newVendors;
+    }
+
     saveDB(); render();
-    alert(`✅ Imported from Excel:\n• ${DB.customers.length} customers\n• ${DB.quotes.length} quotes\n• ${DB.jobs.length} jobs\n• ${DB.invoices.length} invoices\n• ${DB.pos.length} POs`);
+    alert(`✅ Imported from Excel:\n• ${DB.customers.length} customers\n• ${DB.contacts.length} contacts\n• ${DB.vendors.length} vendors\n• ${DB.quotes.length} quotes\n• ${DB.jobs.length} jobs\n• ${DB.invoices.length} invoices\n• ${DB.pos.length} POs`);
 }
 
 function importFromExcel(){
@@ -1943,7 +2213,7 @@ function _buildWorkbook(){
   const iHdr=['Invoice #','Job #','Customer Name','Currency','Invoice Date','Due Date','Invoice Amount ($)','Tax Rate','Tax ($)','Total Due ($)','Total Due (USD)','Date Paid','Status','Payment Method','Days Outstanding','Notes'];
   const iData=DB.invoices.map(inv=>{
     const cu=DB.customers.find(c=>c.id===inv.custId)||{};
-    const sub=lineTotal(inv.items);
+    const sub=invSub(inv);
     const tax=sub*(+(inv.taxRate)||0)/100;
     const total=sub+tax;
     return [
@@ -1958,7 +2228,7 @@ function _buildWorkbook(){
   // ── POs ──
   const pHdr=['PO #','Job #','Supplier Name','Supplier Contact','Vendor Country','Currency','PO Date','Required Date','Category','PO Amount ($)','Tax Rate','Tax ($)','CC/Other Fees ($)','Total PO ($)','Total PO (USD)','Status','Date Received','Invoice Ref','Notes'];
   const pData=DB.pos.map(p=>{
-    const sub=lineTotal(p.items);
+    const sub=poSub(p);
     const tax=sub*(+(p.taxRate)||0)/100;
     const total=sub+tax+(+(p.ccFees)||0);
     return [
@@ -1969,6 +2239,23 @@ function _buildWorkbook(){
     ];
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([pHdr,...pData]),'📦 POs');
+
+  // ── Directory (Contacts + Vendors) ──
+  const dHdr=['C/V','Company Name','Type','Location/Site','Contact Name','Title','Phone','Email','Address','City','State/Prov','Country','Notes'];
+  const dData=[
+    ...DB.contacts.map(co=>{ const cu=DB.customers.find(c=>c.id===co.custId)||{};
+      return ['Customer',co.company,cu.type||'',co.location||'',co.name,co.title||'',co.phone||'',co.email||'',cu.addr||'',cu.city||'',cu.state||'',cu.country||'USA',co.notes||'']; }),
+    ...DB.vendors.map(vn=>['Vendor',vn.company,vn.category||'','',vn.contact||'',vn.title||'',vn.phone||'',vn.email||'',vn.addr||'',vn.city||'',vn.state||'',vn.country||'USA',vn.notes||''])
+  ];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([dHdr,...dData]),'🏢 Directory');
+
+  // ── Job P&L ──
+  const plHdr=['Job #','Customer Name','Job Description','Currency','Contract Value ($)','Contract Value (USD)','Labour Costs ($)','Material Costs ($)','Subcontract ($)','Other Costs ($)','Total Costs (USD)','Gross Profit (USD)','Gross Margin (%)','Status'];
+  const plData=DB.jobs.map(j=>{ const cu=DB.customers.find(c=>c.id===j.custId)||{};
+    const rev=+j.contractValue||0, cost=jobCost(j), gp=rev-cost, gm=rev>0?gp/rev:0;
+    return [j.id,cu.company||'',j.desc||'',cu.currency||'USD',rev,rev,
+      +j.actualLabour||0,+j.actualMaterials||0,+j.actualSub||0,+j.actualOther||0,cost,gp,gm,j.status]; });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([plHdr,...plData]),'💰 Job P&L');
 
   return wb;
 }
