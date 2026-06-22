@@ -1975,11 +1975,11 @@ async function _getMsal(){
   return _msalApp;
 }
 
-async function msSignIn(){
+function msSignIn(){
   if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
+  if(!_msalApp){ alert('App still loading — please try again in a moment.'); return; }
   try {
-    const app = await _getMsal();
-    await app.loginRedirect({ scopes: _SCOPES });
+    _msalApp.loginRedirect({ scopes: _SCOPES });
   } catch(e) {
     alert('Sign-in error: ' + (e.message || String(e)));
   }
