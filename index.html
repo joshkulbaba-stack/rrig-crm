@@ -1972,8 +1972,12 @@ async function _getMsal(){
 
 function msSignIn(){
   if(typeof msal === 'undefined'){ alert('MSAL library not loaded. Check internet connection.'); return; }
-  if(!_msalApp){ alert('Please wait a moment and try again.'); return; }
-  _msalApp.loginRedirect({ scopes: _SCOPES }).catch(e => alert('Sign-in error: ' + (e.message || String(e))));
+  try {
+    if(!_msalApp) _msalApp = new msal.PublicClientApplication(_MSAL_CONFIG);
+    _msalApp.loginRedirect({ scopes: _SCOPES }).catch(e => alert('Sign-in error: ' + (e.message || String(e))));
+  } catch(e) {
+    alert('Sign-in error: ' + (e.message || String(e)));
+  }
 }
 
 function msSignOut(){
