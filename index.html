@@ -424,7 +424,7 @@ function loadDB(){
   DB = JSON.parse(JSON.stringify(SEED));
   saveDB();
 }
-function saveDB(){ localStorage.setItem('rrig-crm-v1',JSON.stringify(DB)); }
+function saveDB(){ localStorage.setItem('rrig-crm-v1',JSON.stringify(DB)); if(typeof syncPushSoon==='function') syncPushSoon(); }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 const fmt$ = v => '$'+(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -478,8 +478,8 @@ function render(){
 
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard(c,a){
-  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()">☁️ Import SharePoint</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()">☁️ Export SharePoint</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
-  setTimeout(_updateAuthUI, 100);
+  a.innerHTML='<button id="ms-auth-btn" class="btn btn-outline btn-sm" onclick="msSignIn()" title="Sign in with RRIG Microsoft account">🔑 Sign in</button><button id="sync-toggle-btn" class="btn btn-outline btn-sm" onclick="toggleLiveSync()" title="Auto-sync all app data across devices via SharePoint">⏸ Live Sync: Off</button><span id="sync-status" style="font-size:11px;font-weight:600;align-self:center"></span><button class="btn btn-outline btn-sm" onclick="syncPull(false)" title="Pull latest from SharePoint now">⤵ Pull</button><button class="btn btn-gold btn-sm" onclick="importFromSharePoint()" title="Import the Excel workbook from SharePoint">☁️ Import Excel</button><button class="btn btn-primary btn-sm" onclick="exportToSharePoint()" title="Write the Excel workbook to SharePoint">☁️ Export Excel</button><button class="btn btn-outline btn-sm" onclick="importFromExcel()" title="Import local Excel file">📥 Local Import</button><button class="btn btn-outline btn-sm" onclick="exportToExcel()" title="Export local Excel file">📤 Local Export</button><button class="btn btn-outline btn-sm" onclick="exportData()" title="JSON backup">⬇ Backup</button><button class="btn btn-outline btn-sm" onclick="importData()" title="JSON restore">⬆ Restore</button>';
+  setTimeout(()=>{ _updateAuthUI(); _updateSyncToggleUI(); }, 100);
   const quotedVal = DB.quotes.reduce((s,q)=>s+quoteVal(q),0);
   const activeJobsVal = DB.jobs.filter(j=>j.status==='Active').reduce((s,j)=>s+(+j.contractValue||0),0);
   const invoicedYTD = DB.invoices.reduce((s,i)=>{ const sub=invSub(i); return s+sub+(sub*(+i.taxRate||0)/100); },0);
@@ -1806,6 +1806,13 @@ let _msalApp = null;
 let _msalAccount = null;
 let _excelDriveId = null;
 let _excelItemId = null;
+let _excelParentId = null;
+// ── Live sync (full app state as JSON in SharePoint) ──
+const _DATA_FILE = 'rrig-crm-data.json';
+let _liveSync = localStorage.getItem('rrig-livesync') === '1';
+let _applyingRemote = false;
+let _pushTimer = null;
+let _syncState = 'idle'; // idle | pulling | pushing | error | ok | off
 const _EXCEL_SHARE_URL = 'https://rrindgroup.sharepoint.com/:x:/s/Corporate/IQCvEVlpR8phQoZy4bZZKUUoAT6B95pT2kz39rwcJ8DQAv0?e=TBCZNe';
 
 async function _getMsal(){
@@ -1853,6 +1860,7 @@ function _updateAuthUI(){
     btn.onclick = msSignOut;
     btn.title = 'Signed in as ' + _msalAccount.username + ' — click to sign out';
     btn.className = 'btn btn-gold btn-sm';
+    if(_liveSync && _syncState==='idle') syncPull(true);
   } else {
     btn.textContent = '🔑 Sign in';
     btn.onclick = msSignIn;
@@ -1891,6 +1899,7 @@ async function _resolveExcelIds(token){
   if(!found){ alert('Excel file not found on SharePoint. Make sure "Red River Industrial Group - Business Management.xlsx" is in the Corporate site.'); return false; }
   _excelDriveId = found.parentReference.driveId;
   _excelItemId = found.id;
+  _excelParentId = found.parentReference.id;
   return true;
 }
 
@@ -1945,6 +1954,100 @@ async function exportToSharePoint(){
     console.error(e);
     alert('Export failed: ' + e.message);
   }
+}
+
+// ─── LIVE SYNC (full app state JSON on SharePoint) ──────────────────────────
+function _setSyncState(s, msg){
+  _syncState = s;
+  const el = document.getElementById('sync-status');
+  if(!el) return;
+  const map = { idle:['', ''], off:['Live sync off','#888'], pulling:['Syncing…','#C08A2B'],
+    pushing:['Saving…','#C08A2B'], ok:['✓ Synced','#1A7F37'], error:['⚠ Sync error','#C0392B'] };
+  const [txt,col] = map[s] || ['',''];
+  el.textContent = msg || txt;
+  el.style.color = col;
+}
+
+// GET the JSON sibling file next to the Excel; returns parsed object, null (missing), or throws
+async function _pullDataFile(token){
+  if(!await _resolveExcelIds(token)) return undefined;
+  const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelParentId + ':/' + _DATA_FILE + ':/content';
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  if(res.status === 404) return null;
+  if(!res.ok) throw new Error('pull ' + res.status);
+  return res.json();
+}
+
+async function _pushDataFile(token){
+  if(!await _resolveExcelIds(token)) return false;
+  const url = 'https://graph.microsoft.com/v1.0/drives/' + _excelDriveId + '/items/' + _excelParentId + ':/' + _DATA_FILE + ':/content';
+  const payload = JSON.stringify({ ...DB, _savedAt: new Date().toISOString() });
+  const res = await fetch(url, { method:'PUT', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' }, body: payload });
+  if(!res.ok) throw new Error('push ' + res.status);
+  return true;
+}
+
+// Pull remote state into the app (silent = no alerts; used on load)
+async function syncPull(silent){
+  if(typeof msal === 'undefined'){ if(!silent) alert('MSAL not loaded.'); return; }
+  try {
+    _setSyncState('pulling');
+    const token = await _getToken(); if(!token) { _setSyncState('idle'); return; }
+    const remote = await _pullDataFile(token);
+    if(remote === undefined){ _setSyncState('error'); return; }
+    if(remote === null){
+      // No cloud copy yet — seed it from this device
+      await _pushDataFile(token);
+      _setSyncState('ok','✓ Synced (created)');
+      return;
+    }
+    _applyingRemote = true;
+    delete remote._savedAt;
+    DB = remote;
+    if(!DB.resources) DB.resources = JSON.parse(JSON.stringify(SEED.resources));
+    if(!DB.vendors)   DB.vendors   = JSON.parse(JSON.stringify(SEED.vendors));
+    if(!DB.settings)  DB.settings  = JSON.parse(JSON.stringify(SEED.settings));
+    localStorage.setItem('rrig-crm-v1', JSON.stringify(DB));
+    _applyingRemote = false;
+    render();
+    _setSyncState('ok');
+    if(!silent) alert('Pulled latest data from SharePoint.');
+  } catch(e){ _applyingRemote=false; console.error(e); _setSyncState('error'); if(!silent) alert('Sync pull failed: '+e.message); }
+}
+
+// Debounced push of full state to SharePoint
+function syncPushSoon(){
+  if(!_liveSync || !_msalAccount || _applyingRemote) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = setTimeout(async ()=>{
+    try {
+      _setSyncState('pushing');
+      const token = await _getToken(); if(!token){ _setSyncState('idle'); return; }
+      await _pushDataFile(token);
+      _setSyncState('ok');
+    } catch(e){ console.error(e); _setSyncState('error'); }
+  }, 1500);
+}
+
+function toggleLiveSync(){
+  _liveSync = !_liveSync;
+  localStorage.setItem('rrig-livesync', _liveSync ? '1' : '0');
+  _updateSyncToggleUI();
+  if(_liveSync){
+    if(!_msalAccount){ alert('Sign in first to enable live sync.'); _liveSync=false; localStorage.setItem('rrig-livesync','0'); _updateSyncToggleUI(); return; }
+    syncPull(false);
+  } else {
+    _setSyncState('off');
+  }
+}
+
+function _updateSyncToggleUI(){
+  const btn = document.getElementById('sync-toggle-btn');
+  if(btn){
+    btn.textContent = _liveSync ? '🔄 Live Sync: On' : '⏸ Live Sync: Off';
+    btn.className = 'btn btn-sm ' + (_liveSync ? 'btn-gold' : 'btn-outline');
+  }
+  _setSyncState(_liveSync ? (_msalAccount ? 'ok' : 'idle') : 'off');
 }
 
 // ─── EXCEL SYNC ─────────────────────────────────────────────────────────────
@@ -2642,7 +2745,13 @@ loadDB();
 render();
 document.getElementById('sidebar-logo').src = RRIG_LOGO;
 // Initialize MSAL on load to catch redirect response from Microsoft login
-_getMsal().then(()=>_updateAuthUI()).catch(e=>console.error('MSAL init',e));
+_getMsal().then(()=>{
+  const app = _msalApp; const accts = app ? app.getAllAccounts() : [];
+  if(accts.length>0) _msalAccount = accts[0];
+  _updateAuthUI();
+  _updateSyncToggleUI();
+  if(_liveSync && _msalAccount) syncPull(true);
+}).catch(e=>console.error('MSAL init',e));
 </script>
 </body>
 </html>
