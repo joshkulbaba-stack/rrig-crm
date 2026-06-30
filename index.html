@@ -1986,7 +1986,7 @@ async function msSignIn(){
       _updateSyncToggleUI();
       _updateAutoImportUI();
       _autoImportExcel();                 // pull Excel right after sign-in
-      if(_liveSync) syncPull(true);
+      if(_liveSync && !_autoImportOn()) syncPull(true);
     }
   } catch(e) {
     if(e.errorCode !== 'user_cancelled') alert('Sign-in error: ' + (e.message || String(e)));
@@ -2018,7 +2018,7 @@ function _updateAuthUI(){
     btn.onclick = msSignOut;
     btn.title = 'Signed in as ' + _msalAccount.username + ' — click to sign out';
     btn.className = 'btn btn-gold btn-sm';
-    if(_liveSync && _syncState==='idle') syncPull(true);
+    if(_liveSync && !_autoImportOn() && _syncState==='idle') syncPull(true);
   } else {
     btn.textContent = '🔑 Sign in';
     btn.onclick = msSignIn;
@@ -2141,6 +2141,9 @@ function _updateAutoImportUI(){
   btn.textContent = on ? '🔄 Auto-Import: On' : '⏸ Auto-Import: Off';
   btn.className = 'btn btn-sm ' + (on ? 'btn-gold' : 'btn-outline');
 }
+// True when Excel auto-import is enabled — in that case the spreadsheet is the source of
+// truth on load, so the JSON Live-Sync pull must NOT auto-run and clobber it.
+function _autoImportOn(){ return localStorage.getItem('rrig-autoimport')!=='0'; }
 
 async function exportToSharePoint(){
   try {
@@ -3027,7 +3030,7 @@ if(typeof msal !== 'undefined'){
   _updateSyncToggleUI();
   _updateAutoImportUI();
   if(_msalAccount) _autoImportExcel();           // Excel = source of truth: pull on load
-  if(_liveSync && _msalAccount) syncPull(true);
+  if(_liveSync && !_autoImportOn() && _msalAccount) syncPull(true);
 })();
 </script>
 </body>
